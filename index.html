@@ -112,6 +112,7 @@
         <p class="login-sub" id="enterSub">已通过验证，点击下方按钮进入</p>
         <p class="login-tip" id="enterWho"></p>
         <button type="button" class="btn btn-primary btn-block login-submit" id="btnEnter">进入系统</button>
+        <button type="button" class="login-alt" id="btnEnterSignOut">换个账号登录</button>
       </div>
 
       <!-- 首次登录强制改密（管理员用临时密码登录后） -->
@@ -120,6 +121,12 @@
         <p class="login-sub">首次登录需要设置自己的密码</p>
 
         <form id="forceForm" autocomplete="off">
+          <!-- 刷新页面后原密码会丢（它只存在内存变量 lastPw 里），
+               此时让用户当场补输一次，而不是把人赶回登录页重来。 -->
+          <label class="field hidden" id="forceOldWrap">
+            <span class="field-label">当前密码</span>
+            <input type="password" id="forceOld" class="input-lg" placeholder="刚才登录用的密码" autocomplete="current-password">
+          </label>
           <label class="field">
             <span class="field-label">新密码</span>
             <input type="password" id="forcePass" class="input-lg" placeholder="至少 6 位" required>
@@ -132,6 +139,10 @@
           <p class="login-err hidden" id="forceErr"></p>
           <button type="submit" class="btn btn-primary btn-block login-submit" id="btnForce">保存新密码</button>
         </form>
+
+        <!-- 逃生口：刷新页面后原密码丢失时，改密必然失败；
+             没有这个按钮人就卡死在这一屏（既进不去也退不出）。 -->
+        <button type="button" class="login-alt" id="btnForceSignOut">退出登录，重新输入密码</button>
       </div>
 
     </div>

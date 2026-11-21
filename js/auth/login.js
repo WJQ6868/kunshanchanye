@@ -61,6 +61,12 @@
     els.enterSub = $('#enterSub');
     els.enterWho = $('#enterWho');
     els.btnEnter = $('#btnEnter');
+    els.btnEnterSignOut = $('#btnEnterSignOut');
+
+    /* 改密页的逃生口：刷新后原密码丢失时改密必然失败，没有它人就卡死 */
+    els.btnForceSignOut = $('#btnForceSignOut');
+    els.forceOldWrap = $('#forceOldWrap');
+    els.forceOld = $('#forceOld');
   }
 
   /* ---------------- 小工具 ---------------- */
@@ -220,13 +226,30 @@
     if (me.user.mustChange) {
       if (els.enterSub) els.enterSub.textContent = '已通过验证，点击下方按钮进入';
       pane('force');
+
+      /* 远程模式下改密要带原密码，而原密码只存在于「本次登录手输过」这个变量里。
+         刷新页面后会话被恢复，lastPw 就没了 —— 这时不让用户白输一遍新密码才
+         看到报错，而是直接多给一个「当前密码」输入框，补输一次即可。 */
+      if (global.RCSession.isRemote() && !lastPw) {
+        if (els.forceOldWrap) els.forceOldWrap.classList.remove('hidden');
+        if (els.forceOld) els.forceOld.value = '';
+        if (els.forceOld) setTimeout(function () { els.forceOld.focus(); }, 80);
+      } else if (els.forceOldWrap) {
+        els.forceOldWrap.classList.add('hidden');
+      }
       return;
     }
 
     if (els.enterSub) els.enterSub.textContent = note || '已通过验证，点击下方按钮进入';
     if (els.enterWho) {
       var name = me.user.displayName || me.user.login || '';
-      var role = me.user.roleLabel || '';
+      /* /me 只回 role 这个 key（admin/teacher/viewer），没有 roleLabel；
+         拿 RCPerm.ROLES 翻成中文，翻不出来就不显示括号。 */
+      var role = '';
+      try {
+        var r = global.RCPerm && global.RCPerm.ROLES && global.RCPerm.ROLES[me.user.role];
+        role = (r && r.label) || '';
+      } catch (e) { role = ''; }
       els.enterWho.textContent = name
         ? ('当前账号：' + name + (role ? '（' + role + '）' : ''))
         : '';
@@ -313,6 +336,14 @@
       });
     }
 
+    /* 「换个账号登录」（准备就绪页）：清会话回登录页。
+       停在这里时人是「已登录但还没进界面」，想换个人用必须能退出来。 */
+    if (els.btnEnterSignOut) {
+      els.btnEnterSignOut.addEventListener('click', function () {
+        signOut();
+      });
+    }
+
     /* 教务一键登录：P3 才真正接入 IdP，现在如实告知「还没接」，
        不假装成功、也不把用户卡在一个假按钮上。 */
     if (els.btnSso) {
@@ -365,21 +396,24 @@
 
       busy(els.btnForce, true, '保存中…');
 
-      /* 远程模式：改密必须带原密码，用刚才登录时输入的那个 */
+      /* 远程模式：改密必须带原密码。
+         优先用刚登录时输的那个（lastPw）；刷新页面后它丢了，就用手输的「当前密码」。 */
       if (global.RCSession.isRemote()) {
-        /* 原密码只在「本次登录时手输过」才拿得到。若是刷新页面后被会话恢复到
-           改密页（lastPw 为空），服务端会以「原密码不正确」拒绝 —— 与其让人
-           在这里白撞，不如明确要求重新登录一次。 */
-        if (!lastPw) {
-          showErr(els.forceErr, '为验证身份，请退出后重新登录再修改密码');
+        var oldPw = lastPw || (els.forceOld && els.forceOld.value) || '';
+        if (!oldPw) {
+          // 理论上进不来（showGateway 已经把手输框显示出来了），兜一层
+          if (els.forceOldWrap) els.forceOldWrap.classList.remove('hidden');
+          showErr(els.forceErr, '请输入当前密码');
           busy(els.btnForce, false);
           return;
         }
-        global.RCSession.changePassword(lastPw, p1).then(function (r) {
+        global.RCSession.changePassword(oldPw, p1).then(function (r) {
           busy(els.btnForce, false);
           if (!r.ok) { showErr(els.forceErr, r.msg); return; }
           els.forcePass.value = '';
           els.forcePass2.value = '';
+          if (els.forceOld) els.forceOld.value = '';
+          if (els.forceOldWrap) els.forceOldWrap.classList.add('hidden');
           global.RCSession.refresh();
           // 改完不自动进，落在「准备就绪」，由用户点按钮
           showGateway(global.RCSession.me(), '密码已更新，点击下方按钮进入');
@@ -402,6 +436,22 @@
         showErr(els.forceErr, err && err.message || String(err));
       });
     });
+
+    /* 改密页的逃生口。
+       场景：新账号（must_change=1）登录后刷新页面 —— 会话还在、仍停在改密页，
+       但 lastPw 已经丢了，服务端必然以「原密码不正确」拒绝；
+       而这一屏本来没有任何出口，人就彻底卡死（既进不去也退不出）。
+       点这里清会话回登录页，重新手输一次密码就能正常改。 */
+    if (els.btnForceSignOut) {
+      els.btnForceSignOut.addEventListener('click', function () {
+        els.forcePass.value = '';
+        els.forcePass2.value = '';
+        if (els.forceOld) els.forceOld.value = '';
+        showErr(els.forceErr, '');
+        signOut();
+        showErr(els.loginErr, '请重新输入密码登录，然后再设置新密码');
+      });
+    }
   }
 
   /* ---------------- 入口 ---------------- */

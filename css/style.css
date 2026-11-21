@@ -3661,6 +3661,27 @@ html[data-theme="blue"] .remember-row input:checked + .remember-box { border-col
 
 .login-submit { margin-top: 4px; }
 
+/* 次要动作（「换个账号登录」「退出登录」）：文字按钮，视觉明显弱于主按钮，
+   但必须可点 —— 主流程出问题时靠它脱身。 */
+.login-alt {
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  font-family: inherit;
+  font-size: clamp(11.5px, 1.05vmin, 13px);
+  line-height: 1.6;
+  color: var(--text-dim);
+  text-align: center;
+  cursor: pointer;
+}
+
+.login-alt:hover { color: var(--text); background: var(--bg-2); }
+.login-alt:focus-visible { outline: 2px solid var(--accent, #3b82f6); outline-offset: 1px; }
+
 /* ---------- 深色主题适配 ---------- */
 
 html[data-theme="gold"] .login-screen,

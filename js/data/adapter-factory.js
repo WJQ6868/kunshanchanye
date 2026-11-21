@@ -338,6 +338,16 @@
       return adapter.queueSize();
     },
 
+    /**
+     * 订阅数据源事件（远程模式的补传结果、被服务端拒绝的记录等）。
+     * 适配器只暴露 onModeChange 一个订阅口，这里转发过去。
+     */
+    onEvent: function (cb) {
+      if (typeof cb !== 'function') return;
+      if (!adapter || typeof adapter.onModeChange !== 'function') return;
+      adapter.onModeChange(cb);
+    },
+
     /** 调试用：拿到真实适配器对象 */
     _adapter: function () { return adapter; }
   };

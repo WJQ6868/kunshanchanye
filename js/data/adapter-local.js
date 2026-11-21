@@ -10,6 +10,7 @@
 
   var C = global.RCDataContract;
   var clone = C.clone;
+  var cloneRecords = C.cloneRecords;
 
   function createLocalAdapter() {
     /* 缓存：null 表示尚未加载 */
@@ -45,7 +46,8 @@
     function getScores(className) {
       var k = String(className == null ? '' : className);
       if (!cache.scores[k]) cache.scores[k] = global.RCStorage.loadScores(k);
-      return clone(cache.scores[k]);
+      var s = cache.scores[k];
+      return { records: cloneRecords(s.records), updatedAt: s.updatedAt };
     }
 
     function getSettings() {
@@ -88,7 +90,7 @@
 
     function setScores(className, records) {
       var k = String(className == null ? '' : className);
-      var recs = Array.isArray(records) ? clone(records) : [];
+      var recs = Array.isArray(records) ? cloneRecords(records) : [];
       cache.scores[k] = { records: recs, updatedAt: Date.now() };
       global.RCStorage.saveScores(k, recs);
       emit({ type: 'scores', cls: k });

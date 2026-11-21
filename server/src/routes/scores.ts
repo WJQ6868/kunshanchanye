@@ -2,14 +2,21 @@
    routes/scores.ts — 加分流水
    ------------------------------------------------------------
      GET    /classes/:name/scores   → {records:[{id,t,name,sid,delta,reason}]}
-     PUT    /classes/:name/scores   ← {records:[...]}   （对账式写入）
+     PUT    /classes/:name/scores   ← {records:[...], removed?:[id...]}   （增量对账）
      DELETE /classes/:name/scores   → {cleared:n}       （全部冲正）
      GET    /classes/:name/scores/all → 含已冲正，管理台用
 
    为什么 PUT 而不是 POST：
-     前端把「本班全部记录」当作真相发上来（它本地就是数组），
-     服务端做对账 —— 语义上是「用这份替换掉那份」，所以是 PUT，
-     也因此天然幂等（同一份 payload 重放不会多出记录）。
+     前端把「本班记录」当作真相发上来（它本地就是数组），服务端做对账 ——
+     语义上是「用这份替换掉那份」，所以是 PUT，也因此天然幂等。
+
+   为什么还要 removed：
+     纯对账（payload 里没有就冲正）在双标签页场景下会互相抹掉对方的加分：
+     A 标签页基于旧快照提交，它没见过的记录被当成「已删除」全部冲正，
+     而它返回 200，谁也不知道（性能测试 P0-2 / 验收 S3）。
+     现在前端在 setScores 里用「提交前基线 − 本次提交」算出 removed，
+     服务端只冲正 removed 里点名的那些；别人新加的记录不在任何人的基线里，
+     因此永远不会被误删。removed 缺省时退回旧的纯对账语义，兼容老缓存。
 
    :name 是班级名（URL 编码）。这里必须走 assertCanEdit 做权限，
    且断言发生在任何写库动作之前。

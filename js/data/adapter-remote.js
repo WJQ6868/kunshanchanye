@@ -28,11 +28,16 @@
 
   var C = global.RCDataContract;
   var clone = C.clone;
+  var cloneRecords = C.cloneRecords;
   var newRequestId = C.newRequestId;
 
   var QUEUE_KEY = 'rollcall.queue.v1';
   var CACHE_KEY = 'rollcall.cache.v1';
   var QUEUE_MAX = 2000;
+  /* 同一条队列项连续失败几次就熔断丢弃。
+     整班快照一旦超过服务端 5MB 上限，重试多少次都不会成功，
+     留在队头会把后面所有加分全堵死（性能测试 P0-1）。 */
+  var MAX_ATTEMPTS = 3;
 
   function createRemoteAdapter(opts) {
     opts = opts || {};
@@ -124,10 +129,18 @@
     }
 
     function writeQueue(q) {
+      /* 写失败必须上抛：以前这里只 console.warn，结果是
+         「UI 提示加分成功、数据其实没进队列、刷新就没了」（性能测试 P0-1）。
+         配额满时宁可在按钮上直接报错，也不能假装成功。 */
       try {
         localStorage.setItem(QUEUE_KEY, JSON.stringify(q.slice(-QUEUE_MAX)));
+        return true;
       } catch (e) {
-        console.warn('[RCData.remote] 队列写入失败（可能超配额）', e);
+        console.error('[RCData.remote] 队列写入失败（localStorage 配额已满）', e);
+        var full = new Error('本机存储已满，这条记录没能保存。请检查网络后刷新页面重试。');
+        full.status = 507;
+        full.code = 'QUOTA_EXCEEDED';
+        throw full;
       }
     }
 
@@ -175,13 +188,22 @@
       flushing = true;
       var sent = 0, failed = 0;
       var rest = [];
+      // 本次补传里被熔断丢弃的坏项（连续失败 MAX_ATTEMPTS 次）。
+      // 单独攒起来随 flush 事件上报，不能静默吞掉——老师得知道哪条没存上。
+      var poisoned = [];
+      // 被服务端以 4xx 明确拒绝的项（数据本身有问题，重试无意义）。
+      // 同样必须上报：以前这里只有 console.warn，界面照旧提示保存成功。
+      var rejected = [];
 
       function step(i) {
         if (i >= q.length) {
           writeQueue(rest);
           flushing = false;
           online = failed === 0;
-          emit({ type: 'flush', sent: sent, failed: failed, pending: rest.length });
+          emit({
+            type: 'flush', sent: sent, failed: failed, pending: rest.length,
+            poisoned: poisoned.slice(), rejected: rejected.slice()
+          });
           return Promise.resolve({ sent: sent, failed: failed, pending: rest.length });
         }
         var item = q[i];
@@ -191,20 +213,38 @@
           sent++;
           return step(i + 1);
         }).catch(function (err) {
-          // 4xx 是「这条数据本身有问题」，重试无意义 → 丢弃并记录
+          // 4xx 是「这条数据本身有问题」，重试无意义 → 丢弃并上报
           // 5xx / 网络错误 → 保留，下次再试
           if (err.status && err.status >= 400 && err.status < 500 && err.status !== 401) {
-            console.warn('[RCData.remote] 队列项被服务端拒绝，已丢弃', item.path, err.message);
+            console.error('[RCData.remote] 队列项被服务端拒绝，已丢弃', item.path, err.message);
+            rejected.push({
+              path: item.path,
+              status: err.status,
+              code: err.code || '',
+              error: String(err.message || err)
+            });
             failed++;
             return step(i + 1);
           }
-          item.attempts++;
+          /* 同一条反复失败就熔断：以前「整班快照超 5MB」这类毒丸会永远堵在队头，
+             后面所有加分都发不出去（性能测试 P0-1）。尝试 MAX_ATTEMPTS 次后丢弃，
+             并把这个坏项单独报出来，不能静默吞掉。 */
+          item.attempts = (item.attempts || 0) + 1;
           item.lastError = String(err.message || err);
+          if (item.attempts >= MAX_ATTEMPTS) {
+            console.error('[RCData.remote] 队列项连续失败，已丢弃', item.path, item.lastError);
+            poisoned.push({ path: item.path, error: item.lastError, attempts: item.attempts });
+            failed++;
+            return step(i + 1);
+          }
           rest = rest.concat(q.slice(i)); // 后续全部保留，保序
           writeQueue(rest);
           flushing = false;
           online = false;
-          emit({ type: 'flush', sent: sent, failed: failed + (q.length - i), pending: rest.length });
+          emit({
+            type: 'flush', sent: sent, failed: failed + (q.length - i), pending: rest.length,
+            poisoned: poisoned.slice(), rejected: rejected.slice()
+          });
           return Promise.resolve({ sent: sent, failed: failed + (q.length - i), pending: rest.length });
         });
       }
@@ -255,8 +295,11 @@
 
     function getScores(className) {
       var k = String(className == null ? '' : className);
-      if (!cache.scores[k]) return clone({ records: [], updatedAt: 0 });
-      return clone(cache.scores[k]);
+      if (!cache.scores[k]) return { records: [], updatedAt: 0 };
+      var s = cache.scores[k];
+      /* 用 cloneRecords 而不是 clone：记录是扁平对象，逐条浅拷贝比 JSON
+         往返快约 20 倍（8 万条 105.6ms → 5.0ms），见 adapter-interface.js */
+      return { records: cloneRecords(s.records), updatedAt: s.updatedAt };
     }
 
     function getSettings() {
@@ -362,9 +405,11 @@
 
     function setScores(className, records, opt) {
       var k = String(className == null ? '' : className);
-      var recs = Array.isArray(records) ? clone(records) : [];
+      var recs = Array.isArray(records) ? cloneRecords(records) : [];
       // 注意：必须在写 scoresLoaded 之前记住基线状态
       var hadBaseline = !!(scoresLoaded[k] || cache.scores[k]);
+      // 提交前的服务端基线（本机上一次确认过的记录），用来算「这次删了哪些」
+      var prev = cache.scores[k];
       if (!canWriteScores(k, recs)) {
         console.error('[RCData.remote] 拒绝写入加分记录：本次启动尚未从服务端取到「'
           + k + '」的记录，此时提交会按对账语义把该班历史分全部冲正。请刷新页面重试。');
@@ -380,7 +425,29 @@
       if (!recs.length && (hadBaseline || (opt && opt.confirmClear))) {
         path += '?confirm=clear';
       }
-      enqueue({ method: 'PUT', path: path, body: { records: recs } });
+      /* 告诉服务端「这次要删掉哪些」，而不是让它拿 payload 做全量对账。
+         全量对账的后果（性能测试 P0-2）：另一个标签页基于旧快照提交时，
+         它没见过的记录会被当成「已删除」全部冲正，而它返回 200，没人知道。
+         这里用「提交前基线 − 本次提交」算出真正被删的 id：
+         撤销一步只会删那一条，别人新加的记录不在本机基线里，永远不会被误删。 */
+      var baseline = (prev && Array.isArray(prev.records)) ? prev.records : null;
+      var removed = null;
+      if (baseline) {
+        var still = Object.create(null);
+        for (var i = 0; i < recs.length; i++) {
+          if (recs[i] && recs[i].id) still[String(recs[i].id)] = true;
+        }
+        removed = [];
+        for (var j = 0; j < baseline.length; j++) {
+          var bid = baseline[j] && baseline[j].id ? String(baseline[j].id) : '';
+          if (bid && !still[bid]) removed.push(bid);
+        }
+      }
+      enqueue({
+        method: 'PUT',
+        path: path,
+        body: removed ? { records: recs, removed: removed } : { records: recs }
+      });
       emit({ type: 'scores', cls: k });
       return true;
     }
@@ -395,7 +462,7 @@
         scoresLoaded[k] = true;
         persistCache();
         emit({ type: 'scores', cls: k, loaded: true });
-        return { ok: true, records: clone(recs) };
+        return { ok: true, records: cloneRecords(recs) };
       }).catch(function (e) {
         online = false;
         return { ok: false, msg: (e && e.message) || String(e) };

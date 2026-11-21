@@ -29,6 +29,8 @@ export const err = {
   unauthorized: (message = '未登录或会话已过期') => new ApiError(401, 'UNAUTHORIZED', message),
   forbidden: (message = '没有权限执行该操作') => new ApiError(403, 'FORBIDDEN', message),
   notFound: (message = '资源不存在') => new ApiError(404, 'NOT_FOUND', message),
+  /** 请求体过大：必须是 413 而不是 400，前端据此区分「这条永远发不出去」并丢弃 */
+  tooLarge: (message = '请求体过大') => new ApiError(413, 'PAYLOAD_TOO_LARGE', message),
   conflict: (message: string, details?: unknown) => new ApiError(409, 'CONFLICT', message, details),
   versionConflict: (message = '数据已被他人修改，请刷新后重试') =>
     new ApiError(409, 'VERSION_CONFLICT', message),
@@ -76,16 +78,26 @@ export async function readJson(req: IncomingMessage, limit = 5 * 1024 * 1024): P
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let size = 0;
+    let aborted = false;
     req.on('data', (c: Buffer) => {
+      if (aborted) return;
       size += c.length;
       if (size > limit) {
-        reject(err.badRequest('请求体过大（上限 5MB）'));
-        req.destroy();
+        /* 超限时**不能** req.destroy()：socket 一断客户端只看到 ECONNRESET，
+           分不清「太大」和「网络抖了」，离线队列就会把这条毒丸无限重试，
+           后面所有请求全被堵死（性能测试 P0-1 复现）。
+           这里只拒绝、不再累积，交给上层把 413 写回去，
+           再靠响应头 Connection: close 收尾。 */
+        aborted = true;
+        chunks.length = 0;
+        req.pause();
+        reject(err.tooLarge(`请求体过大（上限 ${Math.floor(limit / 1024 / 1024)}MB），请精简后重试`));
         return;
       }
       chunks.push(c);
     });
     req.on('end', () => {
+      if (aborted) return;
       if (!chunks.length) return resolve(undefined);
       const text = Buffer.concat(chunks).toString('utf8');
       try {

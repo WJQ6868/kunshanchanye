@@ -202,6 +202,27 @@ export function createApp(opts: AppOptions) {
       /* ---------- 鉴权 ---------- */
       if (route.auth) requireSession(sessionRow);
 
+      /* ---------- 强制改密兜底（服务端） ----------
+         前端 #forcePane 只是一道门：拿初始密码直接 curl 就能绕过。
+         这里在服务端再拦一次，只放行「改密 / 登出 / 读自己 / 探活」这四条路径，
+         其余接口一律 403，并把 code 定为 PASSWORD_CHANGE_REQUIRED 供前端识别。 */
+      if (user && user.must_change === 1) {
+        const allowed =
+          apiPath === '/auth/password' ||
+          apiPath === '/auth/logout' ||
+          apiPath === '/me' ||
+          apiPath === '/auth/refresh' ||
+          apiPath === '/healthz' ||
+          apiPath === '/readyz';
+        if (!allowed) {
+          throw new ApiError(
+            403,
+            'PASSWORD_CHANGE_REQUIRED',
+            '首次登录需先修改密码，请修改后再使用其它功能',
+          );
+        }
+      }
+
       /* ---------- CSRF ---------- */
       if (route.csrf && sessionRow) {
         const header = String(req.headers['x-csrf-token'] || '');
@@ -257,7 +278,15 @@ export function createApp(opts: AppOptions) {
       }
 
       if (isApi) {
-        send(res, json(status, payload), requestId);
+        /* 413 是「请求体超限」：body 没读完，这条连接不能再复用，
+           必须显式 Connection: close，否则 keep-alive 会把残余字节
+           当成下一个请求的请求行解析，后续请求全乱。 */
+        if (status === 413) {
+          send(res, json(status, payload, { Connection: 'close' }), requestId);
+          res.on('finish', () => { try { req.destroy(); } catch { /* ignore */ } });
+        } else {
+          send(res, json(status, payload), requestId);
+        }
       } else {
         res.writeHead(status, { 'Content-Type': 'text/plain; charset=utf-8', 'X-Request-Id': requestId });
         res.end(payload.message);
@@ -320,9 +349,33 @@ async function serveStatic(
     return false;
   }
 
+  // vendor 与图片可以长缓存（内容不常变）；其余走 no-cache + ETag
+  const longCache = /[\\/](vendor|screenshots)[\\/]/.test(target) || /\.(png|jpg|svg|woff2)$/.test(target);
+
   try {
     const st = await stat(target);
     if (!st.isFile()) return false;
+
+    /* ETag：mtime + 大小，文件一改就变。
+       Cache-Control 保持 no-cache（课堂现场改完刷新就要生效），
+       但 no-cache ≠ 不缓存，它要求「每次用前问一下」。没有 ETag 时
+       每次问都得重发整个文件（首屏 43 个请求 1895KB，二次加载依然
+       传满 1895KB，性能测试 P1-3）。有了 ETag 就能回 304 空响应。 */
+    const etag = 'W/"' + st.size.toString(16) + '-' + Math.floor(st.mtimeMs).toString(16) + '"';
+    const inm = String((res.req?.headers?.['if-none-match'] as string | undefined) || '');
+    const lastMod = new Date(st.mtimeMs).toUTCString();
+
+    if (inm && inm.split(',').some((t) => t.trim() === etag)) {
+      res.writeHead(304, {
+        ETag: etag,
+        'Last-Modified': lastMod,
+        'Cache-Control': longCache ? 'public, max-age=604800' : 'no-cache',
+        'X-Request-Id': requestId,
+      });
+      res.end();
+      return true;
+    }
+
     const buf = await readFile(target);
     const ext = extname(target).toLowerCase();
 
@@ -339,12 +392,12 @@ async function serveStatic(
       '.csv': 'text/csv; charset=utf-8',
     };
 
-    const longCache = /[\\/](vendor|screenshots)[\\/]/.test(target) || /\.(png|jpg|svg|woff2)$/.test(target);
-
     res.writeHead(200, {
       'Content-Type': types[ext] || 'application/octet-stream',
       'Content-Length': String(buf.length),
       'Cache-Control': longCache ? 'public, max-age=604800' : 'no-cache',
+      ETag: etag,
+      'Last-Modified': lastMod,
       'X-Request-Id': requestId,
       // CSP：允许自身资源与内联样式（现有 CSS 有 style 属性写法）
       'Content-Security-Policy':

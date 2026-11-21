@@ -188,7 +188,7 @@ async function resolveStudent(
 export async function replaceScores(
   ctx: Ctx,
   className: string,
-  payload: { records?: unknown },
+  payload: { records?: unknown; removed?: unknown },
 ): Promise<{ records: ScoreDTO[] }> {
   const schoolId = schoolIdOf(ctx);
   const name = normClassName(className);
@@ -273,15 +273,33 @@ export async function replaceScores(
       );
     }
 
-    // 库里 live 但 payload 里没有 → 冲正（前端删了一条 / 撤销了一步）
+    // 库里 live 但 payload 里没有 → 以前一律冲正。这正是「双标签页互相抹掉
+    // 对方加分」的根源（性能测试 P0-2 / 验收 S3）：另一个标签页基于旧快照提交，
+    // 它没见过别人新加的记录，于是把别人的记录全部冲正，而且返回 200 没有任何提示。
+    //
+    // 现在只冲正「调用方明确声明要删的」。前端在 setScores 里用
+    // 「提交前基线 − 本次提交」算出 removed 列表，撤销一步只删那一条，
+    // 别人的新记录不在任何人的基线里，因此永远不会被误删。
+    //
+    // removed 缺省时（部署前就打开着的旧标签页，JS 还是老版本）**一个都不删**。
+    // 早先的写法是「缺省就退回全量对账」，实测那条路径依然会抹掉别人的加分 ——
+    // 也就是漏洞还在，只是换了个入口。两害相权：旧前端会退化成「撤销只在本机生效，
+    // 刷新后记录回来」，这是可见的、刷新即自愈的；而静默删别人的分是不可恢复的。
+    // 由于静态资源是 no-cache + ETag，刷新一次就会拿到新 JS，这个窗口很短。
+    const explicitRemoved = Array.isArray(payload.removed)
+      ? new Set(
+          (payload.removed as unknown[])
+            .map((x) => String(x == null ? '' : x).trim())
+            .filter(Boolean),
+        )
+      : null;
+
     for (const r of liveRows) {
       const cid = r.client_record_id;
       if (cid && keep.has(cid)) continue;
-      if (!cid && keep.size && incoming.length) {
-        // 老数据没有 client_record_id：无法与前端对齐，保留不冲正，
-        // 否则用户一进来就会看到历史分被抹掉
-        continue;
-      }
+      // 没有 client_record_id 的老数据无法被前端点名，一律保留（要清空走 DELETE 整班）
+      if (!cid) continue;
+      if (!explicitRemoved || !explicitRemoved.has(cid)) continue;
       await t.run('UPDATE score_record SET revoked_at = ?, revoked_by = ? WHERE id = ?', [now, actorId, r.id]);
     }
   });

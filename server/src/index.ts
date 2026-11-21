@@ -19,6 +19,7 @@ import { loadConfig, describeConfig } from './config.ts';
 import { openDb } from './db/driver.ts';
 import { migrate } from './db/migrate.ts';
 import { seed } from './auth/seed.ts';
+import { pruneSessions } from './auth/session.ts';
 import { createApp } from './server.ts';
 import { log } from './log.ts';
 import { mkdir } from 'node:fs/promises';
@@ -97,6 +98,24 @@ async function main(): Promise<void> {
       '',
     ].join('\n');
     process.stdout.write(banner + '\n');
+  }
+
+  /* ---------- 5.5 清理过期会话 ----------
+     session 表以前只增不减（性能测试 P2-1：生产库 121 行里 105 行已吊销、
+     31 行是用户已删的孤儿）。启动时清一次，之后每小时清一次；
+     timer.unref() 保证它不会阻止进程退出。 */
+  try {
+    const removed = await pruneSessions(db);
+    if (removed > 0) log.info('已清理过期会话', { count: removed });
+    const timer = setInterval(() => {
+      pruneSessions(db).catch((e) => {
+        log.warn('定时清理会话失败', { err: String((e as Error)?.message || e) });
+      });
+    }, 3600_000);
+    timer.unref();
+  } catch (e) {
+    // 表还没建（首次部署迁移失败等）时不影响启动
+    log.warn('清理过期会话失败', { err: String((e as Error)?.message || e) });
   }
 
   /* ---------- 6. HTTP ---------- */

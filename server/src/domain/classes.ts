@@ -302,6 +302,44 @@ function studentKeyOf(s: StudentDTO, className: string): string {
 }
 
 /**
+ * 部分名单护栏（2026-11-21 线上事故的直接原因）。
+ *
+ * PUT /roster 是**全量对账**：没出现在 body 里的学生一律 left_at = now，
+ * 没有在册班级的学生再被软删。前端只要漏提交一个班（例如只把当前班的
+ * 学生发上来、或者导入时只传了新表里的班），那个班会整班消失，
+ * 连带把该班的加分变成「挂在已删学生上的幽灵分」。
+ *
+ * 所以：body 里出现的班级集合必须覆盖「库里有在册学生的全部班级」。
+ * 确实要整班删除时，必须带 ?confirm=partial 显式确认。
+ */
+async function assertRosterCoversLiveClasses(
+  ctx: Ctx,
+  schoolId: string,
+  incomingClassNames: Set<string>,
+): Promise<void> {
+  const live = await ctx.db.all<{ name: string }>(
+    `SELECT DISTINCT c.name
+       FROM class c
+       JOIN class_student cs ON cs.class_id = c.id AND cs.left_at IS NULL
+      WHERE c.school_id = ? AND c.deleted_at IS NULL`,
+    [schoolId],
+  );
+  const missing = live.map((r) => r.name).filter((n) => n && !incomingClassNames.has(n));
+  if (!missing.length) return;
+  if (String(ctx.query.get('confirm') || '') === 'partial') {
+    log.warn('名单部分提交已确认，将关闭缺失班级的成员关系', { missing });
+    return;
+  }
+  throw err.conflict(
+    '这次提交的名单里没有「' + missing.join('、') + '」，直接写入会把'
+    + (missing.length > 1 ? '这些班' : '这个班') + '的成员全部移出并软删学生。'
+    + '如果是导入表格只包含部分班级，请提交完整名单；'
+    + '如果确实要清空' + (missing.length > 1 ? '这些班' : '这个班') + '，请带 confirm=partial 重新提交。',
+    { reason: 'ROSTER_PARTIAL', missingClasses: missing },
+  );
+}
+
+/**
  * 整份名单替换（前端 PUT /roster，body 是学生数组本身）。
  *
  * 对账策略（幂等，可重复执行）：
@@ -332,6 +370,15 @@ export async function replaceRoster(ctx: Ctx, list: unknown): Promise<{ count: n
 
   const classCount = new Set(incoming.map((s) => s.group).filter(Boolean)).size;
 
+  // 空名单由路由层的 assertClearAllowed 管；这里管「有数据但漏了班」
+  if (incoming.length) {
+    await assertRosterCoversLiveClasses(
+      ctx,
+      schoolId,
+      new Set(incoming.map((s) => s.group).filter(Boolean)),
+    );
+  }
+
   await ctx.db.tx(async (t) => {
     const now = nowIso();
 
@@ -343,15 +390,27 @@ export async function replaceRoster(ctx: Ctx, list: unknown): Promise<{ count: n
     }
 
     // 2) 现有学生索引：学号 → 行；legacy_key → 行
+    //
+    // 这里必须把**软删的行也一起索引**。线上曾经出现过 49 组「软删旧行 + 在世新行」
+    // 的同人双记录（2026-11-21 11:32 那次整班误删事故的产物）：只索引在世行时，
+    // 重新导入名单会给同一个人再 INSERT 一条新行，历史加分留在旧行上，
+    // 于是变成「班级总分有 5 分、学生排行榜里找不到这个人」的幽灵分。
+    // 现在的策略是：命中软删行就复活它（deleted_at 置回 NULL），不新建。
     const existing = await t.all<StudentRow>(
-      'SELECT * FROM student WHERE school_id = ? AND deleted_at IS NULL',
+      'SELECT * FROM student WHERE school_id = ?',
       [schoolId],
     );
     const byNo = new Map<string, StudentRow>();
     const byLegacy = new Map<string, StudentRow>();
+    // 同一 key 可能同时有在世行与软删行，永远让在世行占位
+    const put = (map: Map<string, StudentRow>, key: string, r: StudentRow): void => {
+      const cur = map.get(key);
+      if (cur && !cur.deleted_at) return;
+      map.set(key, r);
+    };
     for (const r of existing) {
-      if (r.external_student_id) byNo.set(r.external_student_id, r);
-      if (r.legacy_key) byLegacy.set(r.legacy_key, r);
+      if (r.external_student_id) put(byNo, r.external_student_id, r);
+      if (r.legacy_key) put(byLegacy, r.legacy_key, r);
     }
 
     // 3) 逐条对账
@@ -379,15 +438,14 @@ export async function replaceRoster(ctx: Ctx, list: unknown): Promise<{ count: n
           byLegacy.set(key, created);
         }
       } else {
-        if (row.name !== s.name || row.external_student_id !== s.id) {
-          await t.run('UPDATE student SET name = ?, name_norm = ?, external_student_id = ?, legacy_key = ?, updated_at = ? WHERE id = ?', [
-            s.name,
-            nameNorm(s.name),
-            s.id,
-            key,
-            now,
-            row.id,
-          ]);
+        const revive = !!row.deleted_at;
+        if (revive || row.name !== s.name || row.external_student_id !== s.id) {
+          await t.run(
+            'UPDATE student SET name = ?, name_norm = ?, external_student_id = ?, legacy_key = ?, deleted_at = NULL, updated_at = ? WHERE id = ?',
+            [s.name, nameNorm(s.name), s.id, key, now, row.id],
+          );
+          if (revive) log.info('学生复活（命中软删行，历史加分保留）', { name: s.name, id: row.id });
+          row.deleted_at = null;
         }
       }
       if (!row) continue;

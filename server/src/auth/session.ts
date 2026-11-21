@@ -186,3 +186,29 @@ export function requireSession(row: SessionRow | null): SessionRow {
   if (!row) throw err.unauthorized();
   return row;
 }
+
+/**
+ * 清理过期/已吊销且超过保留期的会话行（性能测试 P2-1）。
+ *
+ * 以前 session 表只增不减：每次登录插一行、退出只把 revoked_at 置位，
+ * 生产库 121 行里 105 行已吊销、31 行是「用户已删但会话还在」的孤儿。
+ * 现在把 30 天前的死行物理删掉，孤儿行（用户已不存在）立刻删。
+ * 保留 30 天是为了让「最近登录设备」这类排查还能查得到。
+ */
+export async function pruneSessions(db: Db, keepMs = 30 * 24 * 3600_000): Promise<number> {
+  const cutoff = new Date(Date.now() - keepMs).toISOString();
+  let removed = 0;
+  // 1) 用户已不存在的孤儿会话
+  removed += await db.run(
+    `DELETE FROM session
+      WHERE user_id NOT IN (SELECT id FROM app_user)`,
+  );
+  // 2) 早已过期/吊销的老行
+  removed += await db.run(
+    `DELETE FROM session
+      WHERE (revoked_at IS NOT NULL OR expires_at <= ?) AND issued_at < ?`,
+    [cutoff, cutoff],
+  );
+  return removed;
+}
+

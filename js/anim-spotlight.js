@@ -119,8 +119,10 @@
     });
     gridEl.appendChild(frag);
 
+    // fitGrid() 末尾会调 fitNames()；这里不要再调一次。
+    // 以前是 fitGrid(); fitNames();，而 fitGrid 内部又调 fitNames，
+    // 一次 render 触发 3 轮「逐卡读写」，500 人班级光这里就要 511ms（性能测试 P1-2）。
     fitGrid();
-    fitNames();
 
     if (glowEl) { glowEl.classList.remove('on'); }
   }
@@ -252,20 +254,43 @@
    * text-overflow: ellipsis 截断成「一班学…」，缩小后依然是省略号。
    * 这里改成真正改字号，让文字重新排版，名字完整显示。
    */
+  /**
+   * 长名字按「可用宽度 / 实际文字宽度」等比缩小字号。
+   * 不能用 transform: scale()——transform 不改变布局盒，文字会先被
+   * text-overflow: ellipsis 截断成「一班学…」，缩小后依然是省略号。
+   * 这里改成真正改字号，让文字重新排版，名字完整显示。
+   *
+   * 分三轮批量处理（读→读→写），而不是每张卡「写-读-写」：
+   * 后者每张卡都会强制同步布局，500 张卡就是 500 次 layout（性能测试 P1-2）。
+   */
   function fitNames() {
     if (!gridEl || !cards.length) return;
     var base = parseFloat(getComputedStyle(gridEl).getPropertyValue('--card-fs')) || 20;
 
-    cards.forEach(function (c) {
-      var t = c.querySelector('.card-name');
-      if (!t) return;
+    // 第 1 轮：清掉上一轮的字号（写）
+    var els = [];
+    for (var i = 0; i < cards.length; i++) {
+      var t = cards[i].querySelector('.card-name');
+      if (!t) continue;
       t.style.fontSize = '';
-      var avail = t.clientWidth;
-      var need = t.scrollWidth;
-      if (!avail || !need || need <= avail) return;
-      var fs = base * (avail / need) * 0.97;
-      t.style.fontSize = Math.max(11, Math.floor(fs * 10) / 10) + 'px';
-    });
+      els.push(t);
+    }
+    if (!els.length) return;
+
+    // 第 2 轮：一次性读完全部宽度（读）
+    var need = [];
+    for (var j = 0; j < els.length; j++) {
+      need.push({ avail: els[j].clientWidth, need: els[j].scrollWidth });
+    }
+
+    // 第 3 轮：一次性写完（写）
+    for (var m = 0; m < els.length; m++) {
+      var a = need[m].avail;
+      var w = need[m].need;
+      if (!a || !w || w <= a) continue;
+      var fs = base * (a / w) * 0.97;
+      els[m].style.fontSize = Math.max(11, Math.floor(fs * 10) / 10) + 'px';
+    }
   }
 
   function clearHot() {

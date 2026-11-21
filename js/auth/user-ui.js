@@ -389,12 +389,20 @@
     if (!els.ufPerms) return;
     var eff = global.RCPerm.effective(role, overrides || {});
     var groups = global.RCPerm.grouped();
-    els.ufPerms.innerHTML = groups.map(function (g) {
+    /* 管理员（以及本机模式）的权限恒为全开，服务端 effective() 直接返回角色默认值、
+       不看覆盖项。以前这里照样渲染 36 个可点的复选框，点了能保存但完全不生效，
+       管理员会以为自己收紧了某个人的权限（验收测试 S4）。
+       现在整块置灰并说明原因，避免「改了没反应」的误解。 */
+    var fixedRole = (role === 'admin' || role === 'local');
+    var note = fixedRole
+      ? '<p class="uf-perm-note">管理员恒为全部权限，无法单独收紧（避免把自己锁在门外）。要限制权限请改用「讲师」角色。</p>'
+      : '';
+    els.ufPerms.innerHTML = note + groups.map(function (g) {
       var items = g.items.map(function (p) {
-        var locked = p.n && role !== 'admin';
-        var on = locked ? false : !!eff[p.key];
+        var locked = fixedRole || (p.n && role !== 'admin');
+        var on = locked ? (fixedRole ? !!eff[p.key] : false) : !!eff[p.key];
         return '<label class="uf-perm' + (locked ? ' locked' : '') + '" title="' +
-          esc(locked ? '仅管理员可用' : (p.s ? '敏感操作，需谨慎授予' : p.label)) + '">' +
+          esc(locked ? (fixedRole ? '管理员恒为全部权限' : '仅管理员可用') : (p.s ? '敏感操作，需谨慎授予' : p.label)) + '">' +
           '<input type="checkbox" data-pk="' + esc(p.key) + '"' + (on ? ' checked' : '') +
           (locked ? ' disabled' : '') + '>' + esc(p.label) + '</label>';
       }).join('');

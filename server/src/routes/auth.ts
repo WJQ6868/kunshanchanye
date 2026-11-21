@@ -24,14 +24,33 @@ export const GUEST_LOGIN = 'guest';
 
 /* ---------- 登录失败计数 ---------- */
 
-async function recentFailures(ctx: Ctx, username: string): Promise<number> {
+/**
+ * 统计窗口内的失败次数。
+ *
+ * 必须显式传 schoolId：登录路由是 auth:false 的匿名请求，ctx.session 恒为 null，
+ * 早先写成 `ctx.session?.school_id || ''` 会让查询用空串、写入用真实 school_id，
+ * 两边永不匹配 → fails 恒为 0 → 限流完全失效（验收测试实测 35 次连错无一 429）。
+ *
+ * 账号与 IP 分开计数：同一个 NAT 后面的全校共用一个出口 IP，
+ * 如果两者同阈值，一个学生手滑输错 5 次就能把整个学校锁在门外。
+ */
+async function recentFailures(
+  ctx: Ctx,
+  schoolId: string,
+  username: string,
+): Promise<{ byName: number; byIp: number }> {
   const since = new Date(Date.now() - ctx.cfg.loginWindowMs).toISOString();
-  const row = await ctx.db.get<{ n: number }>(
+  const nameRow = await ctx.db.get<{ n: number }>(
     `SELECT COUNT(*) AS n FROM login_attempt
-      WHERE school_id = ? AND (lower(username) = lower(?) OR ip = ?) AND ok = 0 AND created_at >= ?`,
-    [ctx.session?.school_id || '', username, ctx.ip, since],
+      WHERE school_id = ? AND lower(username) = lower(?) AND ok = 0 AND created_at >= ?`,
+    [schoolId, username, since],
   );
-  return Number(row?.n ?? 0);
+  const ipRow = await ctx.db.get<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM login_attempt
+      WHERE school_id = ? AND ip = ? AND ok = 0 AND created_at >= ?`,
+    [schoolId, ctx.ip, since],
+  );
+  return { byName: Number(nameRow?.n ?? 0), byIp: Number(ipRow?.n ?? 0) };
 }
 
 async function noteAttempt(ctx: Ctx, schoolId: string, username: string, ok: boolean): Promise<void> {
@@ -58,9 +77,17 @@ export function registerAuthRoutes(r: Router): void {
       ]);
       if (!school) throw err.internal('学校未初始化');
 
-      const fails = await recentFailures(ctx, login);
-      if (fails >= ctx.cfg.loginMaxFails) {
-        log.warn('登录被限流', { login, ip: ctx.ip, fails });
+      const fails = await recentFailures(ctx, school.id, login);
+      if (fails.byName >= ctx.cfg.loginMaxFails) {
+        log.warn('登录被限流（账号）', { login, ip: ctx.ip, fails: fails.byName });
+        throw err.tooMany(
+          `尝试次数过多，请 ${Math.ceil(ctx.cfg.loginWindowMs / 60000)} 分钟后再试`,
+        );
+      }
+      // IP 阈值放宽到 4 倍：教室/校园网共用一个出口 IP，
+      // 与账号同阈值会让一个学生手滑把全校锁在门外。
+      if (fails.byIp >= ctx.cfg.loginMaxFails * 4) {
+        log.warn('登录被限流（IP）', { login, ip: ctx.ip, fails: fails.byIp });
         throw err.tooMany(
           `尝试次数过多，请 ${Math.ceil(ctx.cfg.loginWindowMs / 60000)} 分钟后再试`,
         );

@@ -3288,6 +3288,7 @@
         showBootError(e);
       }
       applyDataModeBadge(info);
+      watchDataEvents();
 
       // 本机模式的账号存在浏览器里：先确保内置最高管理员在位，
       // 再交给登录页。远程模式的账号在服务端，由 seed 保证，这里不能碰。
@@ -3490,6 +3491,46 @@
    * 数据模式角标：本地模式给个小提示，远程模式不打扰。
    * 只在「本地模式 + http(s) 访问」时提示，因为这时用户可能以为数据在服务器上。
    */
+  /**
+   * 订阅数据源事件，把「没存上的记录」明确告诉老师。
+   *
+   * 性能测试 P0-1 的教训：离线队列写满或补传连续失败时，旧代码只 console.warn，
+   * 界面照样提示「已加分」，刷新后数据就没了。现在一律冒泡成红色提示，
+   * 并说明有几条没保存，让老师知道要重做。
+   */
+  function watchDataEvents() {
+    if (!RCData || typeof RCData.onEvent !== 'function') return;
+    try {
+      RCData.onEvent(function (evt) {
+        if (!evt || typeof evt !== 'object') return;
+        if (evt.type === 'flush') {
+          var poisoned = evt.poisoned || [];
+          var rejected = evt.rejected || [];
+          if (poisoned.length) {
+            toast('有 ' + poisoned.length + ' 条记录连续保存失败，已放弃重试。请刷新页面后重新录入。', 'warn');
+            console.error('[RC] 被放弃的队列项', poisoned);
+          } else if (rejected.length) {
+            // 服务端明确拒绝（4xx）：重试无意义，但必须让老师知道这条没存上
+            var first = rejected[0];
+            var why = first.code === 'PAYLOAD_TOO_LARGE' ? '数据太大' : (first.error || '服务端拒绝');
+            toast('有 ' + rejected.length + ' 条记录没能保存（' + why + '），请刷新页面后重试', 'warn');
+            console.error('[RC] 被服务端拒绝的队列项', rejected);
+          } else if (evt.failed > 0) {
+            toast('有 ' + evt.failed + ' 条记录还没保存上，网络恢复后会自动重试', 'warn');
+          }
+          return;
+        }
+        if (evt.type === 'scoresRejected') {
+          toast('加分记录没能保存：请刷新页面后重试', 'warn');
+          return;
+        }
+        if (evt.type === 'rosterRejected' || evt.type === 'classesRejected') {
+          toast('名单没能保存到服务器，请刷新页面后重试', 'warn');
+        }
+      });
+    } catch (e) { console.warn('[RC] 订阅数据事件失败', e); }
+  }
+
   function applyDataModeBadge(info) {
     try {
       var isFile = global.location.protocol === 'file:';

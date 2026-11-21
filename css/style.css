@@ -3282,21 +3282,12 @@ html[data-theme="gold"] .toast.ok, html[data-theme="blue"] .toast.ok { color: #b
   justify-content: space-between;
   gap: clamp(22px, 4vmin, 44px);
   padding: clamp(26px, 3.6vmin, 46px);
-  background: linear-gradient(158deg, #1e3a8a, #2563eb 56%, #3b82f6);
+  /* 与企业文化海报同底色（#287bfe），让整块图无缝融进品牌区 */
+  background: #287bfe;
   color: #fff;
   overflow: hidden;
 }
 
-.login-brand::after {
-  content: '';
-  position: absolute;
-  left: -30%;
-  right: -30%;
-  bottom: -52%;
-  height: 74%;
-  background: radial-gradient(closest-side, rgba(255, 255, 255, .26), transparent);
-  pointer-events: none;
-}
 
 .login-brand-top {
   position: relative;
@@ -3323,55 +3314,27 @@ html[data-theme="gold"] .toast.ok, html[data-theme="blue"] .toast.ok { color: #b
   letter-spacing: .04em;
 }
 
-.login-brand-mid { position: relative; z-index: 1; }
-
-.login-brand-mid h2 {
-  margin: 0 0 10px;
-  font-size: clamp(23px, 2.6vmin, 32px);
-  font-weight: 800;
-  line-height: 1.28;
-  letter-spacing: -.01em;
-}
-
-.login-brand-mid p {
-  margin: 0;
-  font-size: clamp(12.5px, 1.2vmin, 14px);
-  line-height: 1.75;
-  color: rgba(255, 255, 255, .82);
-}
-
-.login-points {
-  margin: clamp(16px, 2.4vmin, 26px) 0 0;
-  padding: 0;
-  list-style: none;
+/* 品牌区中段放企业文化海报：整块图直接铺满可用宽度，不再用文字介绍 */
+.login-brand-mid {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 auto;
   display: flex;
-  flex-direction: column;
-  gap: 9px;
+  align-items: center;
+  min-height: 0;
 }
 
-.login-points li {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  font-size: clamp(12px, 1.15vmin, 13.5px);
-  line-height: 1.6;
-  color: rgba(255, 255, 255, .9);
+.login-poster {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 100%;
+  object-fit: contain;
+  object-position: left center;
+  /* 海报本身就是 #287bfe 蓝底，和品牌区渐变边缘用圆角+轻微投影收边 */
+  border-radius: 10px;
 }
 
-.login-points li i {
-  flex: 0 0 auto;
-  width: 16px;
-  height: 16px;
-  margin-top: 2px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, .2);
-  color: #fff;
-  font-style: normal;
-  font-size: 10px;
-  font-weight: 800;
-  line-height: 16px;
-  text-align: center;
-}
 
 .login-brand-foot {
   position: relative;
@@ -3707,16 +3670,13 @@ html[data-theme="blue"] .login-err { background: rgba(220, 38, 38, .14); border-
   .login-screen { align-items: flex-start; padding: 14px; }
   .login-card { grid-template-columns: 1fr; border-radius: 16px; }
   .login-brand { gap: 12px; padding: 18px 20px; }
-  .login-brand-mid h2 { margin-bottom: 4px; font-size: 19px; }
-  .login-brand-mid p,
-  .login-points { display: none; }
+  .login-poster { max-height: 30vh; }
   .login-brand-foot { font-size: 11px; }
   .login-form { padding: 22px 20px 26px; }
 }
 
 @media (max-height: 640px) {
-  .login-brand-mid p { display: none; }
-  .login-points { margin-top: 12px; gap: 6px; }
+  .login-poster { max-height: 26vh; }
   .login-brand { gap: 14px; padding: 20px 24px; }
   .login-form { padding: 20px 24px; }
 }

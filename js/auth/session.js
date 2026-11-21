@@ -117,7 +117,8 @@
     var eff = global.RCPerm.effective(user.role, user.perms);
     current = safe;
     perms = eff;
-    snapshot = { user: safe, permissions: eff, classScopes: user.classScopes || [] };
+    // classScopes 为 null = 不限（全部班级），必须原样保留，不能 `|| []` 退化成「零个班」
+    snapshot = { user: safe, permissions: eff, classScopes: safe.classScopes };
     return snapshot;
   }
 
@@ -133,6 +134,9 @@
       return null;
     }
     var u = payload.user;
+    // classScopes 为 null = 不限（全部班级）；数组 = 只能碰这些班；
+    // 千万不要 `|| []`，那会把「不限」退化成「一个班都不能碰」，表现就是有权限却只读。
+    var scopes = payload.classScopes === undefined ? null : payload.classScopes;
     current = {
       id: u.id,
       login: u.login,
@@ -141,10 +145,10 @@
       employeeNo: u.employeeNo || '',
       disabled: false,
       mustChange: !!u.mustChange,
-      classScopes: payload.classScopes || []
+      classScopes: scopes
     };
     perms = payload.permissions || {};
-    snapshot = { user: current, permissions: perms, classScopes: payload.classScopes || [] };
+    snapshot = { user: current, permissions: perms, classScopes: scopes };
     return snapshot;
   }
 
@@ -309,7 +313,7 @@
   function classScopes() {
     if (!current) return [];
     if (current.role === 'admin' || current.role === 'local') return null;
-    return current.classScopes || [];
+    return current.classScopes === undefined ? [] : current.classScopes;
   }
 
   /**
@@ -320,7 +324,7 @@
     if (!current) return [];
     if (current.role === 'admin' || current.role === 'local') return null;
     if (perms['class.view_all']) return null;
-    return current.classScopes || [];
+    return current.classScopes === undefined ? [] : current.classScopes;
   }
 
   /** 某个班级是否可进入查看 */

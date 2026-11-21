@@ -201,6 +201,24 @@ async function mergeClassScope(
     'SELECT class_scopes FROM app_user WHERE id = ?',
     [userId],
   );
+  // class_scopes IS NULL 表示「不限全部班级」，此时不需要写范围：
+  // 若当成空数组再 push 一个班名，会把「全部班级」缩成「只有这一个班」，反而不小心撤了权。
+  if (row && row.class_scopes === null) {
+    const cls0 = await findClassByName(t, schoolId, className);
+    if (cls0) {
+      const has0 = await t.get<{ n: number }>(
+        'SELECT COUNT(*) AS n FROM user_class_scope WHERE user_id = ? AND class_id = ?',
+        [userId, cls0.id],
+      );
+      if (!has0?.n) {
+        await t.run(
+          "INSERT INTO user_class_scope (user_id, class_id, source, created_at) VALUES (?, ?, 'edu', ?)",
+          [userId, cls0.id, todayIso()],
+        );
+      }
+    }
+    return;
+  }
   let list: string[] = [];
   try {
     const parsed = row?.class_scopes ? JSON.parse(row.class_scopes) : null;

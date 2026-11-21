@@ -93,16 +93,17 @@ export function makePermHelpers(row: UserRow | null): {
   const role = row.role;
 
   // 可写范围：只看任教班级。管理员/本机用户不限。
+  // class_scopes 为 NULL = 不限（全部班级），不能写成 `|| []`，否则会退化成「一个班都不能碰」。
   const classScopes = (): string[] | null => {
     if (role === 'admin' || role === 'local') return null;
-    return pub.classScopes || [];
+    return pub.classScopes;
   };
 
   // 可读范围：有 class.view_all 就能看全部班级（默认给讲师），但改不了。
   const viewScopes = (): string[] | null => {
     if (role === 'admin' || role === 'local') return null;
     if (perms['class.view_all']) return null;
-    return pub.classScopes || [];
+    return pub.classScopes;
   };
 
   const canViewClass = (name: string): boolean => {

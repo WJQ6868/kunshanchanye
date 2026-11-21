@@ -146,10 +146,16 @@
     paintChip();
     els.menu.classList.remove('hidden');
     var r = anchor.getBoundingClientRect();
-    var w = 226;
+    var w = Math.min(226, global.innerWidth - 24);
     var left = Math.max(8, Math.min(r.right - w, global.innerWidth - w - 8));
     els.menu.style.left = left + 'px';
-    els.menu.style.top = (r.bottom + 8) + 'px';
+    // 手机上顶栏可能贴底，菜单要往上翻，不能顶出屏幕
+    var mh = els.menu.offsetHeight || 0;
+    var top = r.bottom + 8;
+    if (mh && top + mh > global.innerHeight - 8) {
+      top = Math.max(8, Math.min(r.top - mh - 8, global.innerHeight - mh - 8));
+    }
+    els.menu.style.top = top + 'px';
     anchor.classList.add('open');
     menuOpen = true;
     setTimeout(function () {

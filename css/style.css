@@ -4319,3 +4319,276 @@ html[data-theme="blue"] .gc-icon {
   * { animation-duration: .01ms !important; transition-duration: .06s !important; }
   .name-card.winner { animation: none; }
 }
+
+/* ============================ 手机端适配（小屏） ============================ */
+/* 目标：320px 宽的手机上，登录页与主界面都能正常操作。
+   全部追加在既有断点之后，靠后优先级覆盖；桌面样式不受影响。 */
+
+/* ---------- 视口高度：优先用动态视口单位，避免地址栏把底部顶出屏幕 ---------- */
+@supports (height: 100dvh) {
+  html, body { height: 100dvh; }
+}
+
+/* 刘海屏 / 圆角屏安全区（viewport-fit=cover 时 env() 才有值，桌面恒为 0） */
+.app {
+  padding-bottom: calc(var(--app-pad) + env(safe-area-inset-bottom, 0px));
+  padding-left: calc(var(--app-pad) + env(safe-area-inset-left, 0px));
+  padding-right: calc(var(--app-pad) + env(safe-area-inset-right, 0px));
+}
+
+/* ============================ ≤640px：手机竖屏主场景 ============================ */
+@media (max-width: 640px) {
+  :root {
+    --app-pad: 10px;
+    --gap: 8px;
+  }
+
+  /* ---------- 顶栏：压成两行，副标题让位给按钮 ---------- */
+  .topbar { padding: 8px 10px; gap: 8px; }
+  .brand-text p { display: none; }
+  .brand-logo { height: 20px; }
+  .brand-text h1 { font-size: 15px; }
+  /* 顶栏按钮单行横向滚动，不再换行吃掉半屏高度 */
+  .topbar-actions {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .topbar-actions::-webkit-scrollbar { display: none; }
+  .topbar-actions > * { flex: 0 0 auto; }
+  .tb-left { gap: 6px; }
+
+  /* 抽取动画三选一：允许横滚，不换行吃高度 */
+  .pill-group { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .pill-group::-webkit-scrollbar { display: none; }
+  .pill { padding: 6px 10px; }
+
+  /* 文案型按钮收窄 */
+  #btnGamesClass, #btnImport, #btnGamesHome, #btnEduSync, #btnImportHome,
+  #btnNewClass { padding: 8px 10px; }
+
+  .icon-btn { width: 38px; height: 38px; }
+  .user-chip { height: 38px; }
+  .user-name { max-width: 5.5em; }
+
+  /* ---------- 首页 ---------- */
+  .home-body { gap: 12px; }
+  .home-tabs { flex-wrap: wrap; gap: 8px; }
+  .home-head h2 { font-size: 16px; }
+  .tab-tools { flex: 1 1 auto; min-width: 0; }
+  .input-mini.home-search { flex: 1 1 auto; width: auto; min-width: 0; }
+  .class-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+
+  .rank-block { padding: 12px; }
+  .rank-list { max-height: none; }
+  .rank-row { grid-template-columns: 30px minmax(0, 1fr) auto; gap: 8px; padding: 8px 10px; }
+  .rb-head { gap: 8px; }
+  .podium-inner { max-width: 100%; }
+  .pod-1 .pod-niu { height: 76px; }
+  .pod-2 .pod-niu { height: 58px; }
+  .pod-3 .pod-niu { display: none; }
+
+  /* ---------- 班级工作台 ---------- */
+  .wb-summary { padding: 6px 10px; gap: 10px; }
+  .wb-total { padding-right: 10px; }
+  .wb-total-num { font-size: 20px; }
+  .wb-top3-label { display: none; }
+  .wb-top3-wrap { min-width: 0; }
+  .top3-chip { max-width: 34vw; }
+  #btnClassSheet { padding: 6px 10px; font-size: 12px; }
+
+  /* 学生名单头 + 随机点名 */
+  .roster-head { gap: 8px; }
+  .roster-title .hint { display: none; }
+  .draw-btn { padding: 9px 22px; }
+  .draw-btn-text { font-size: 15px; }
+  .draw-btn-hint { display: none; }
+
+  /* 工作台：手机上改为整页纵向滚动，舞台给足高度，面板在下面自然展开 */
+  .workspace { flex-direction: column; overflow-y: auto; overflow-x: hidden; gap: 10px; }
+  .roster-col { flex: 0 0 auto; min-height: min(66svh, 540px); }
+  .stage { min-height: 0; }
+  /* 人数多时一行放不下 8 排，网格自己纵向滚动，别把最后几排裁掉 */
+  .card-grid { overflow-y: auto; overflow-x: hidden; }
+  /* 窄卡上左下「总分」和右下「今日得分」两个角标会撞在一起：
+     卡片内容宽窄到放不下两个带文字的角标时，先缩字号、再只留数字。
+     container 查询量的是卡片内容宽（扣掉 padding 与边框）。 */
+  .name-card { container-type: inline-size; }
+  @container (max-width: 84px) {
+    .card-score, .card-today { font-size: 11px; }
+    .card-score i, .card-today i { font-size: .56em; }
+  }
+  @container (max-width: 72px) {
+    .card-score i, .card-today i { display: none; }
+  }
+  .score-panel { flex: 0 0 auto; width: 100%; max-height: none; }
+  .workspace.no-panel .score-panel { display: none; }
+  .panel-head { padding: 8px 12px; }
+  .panel-body { padding: 10px; gap: 10px; overflow: visible; }
+  .score-log { max-height: 34svh; }
+  .sel-chips { max-height: 64px; }
+
+  /* 结果条：窄屏压成两行——第一行「名字+分数」，第二行 4 个按钮一排，关闭按钮浮到右上角。
+     结果条越矮，舞台底部预留（--result-reserve 由 syncResultReserve 实测）越小，卡片就能越大 */
+  .result-overlay { padding-bottom: 6px; }
+  .result-card {
+    position: relative;
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 6px 12px;
+    padding: 8px 34px 8px 12px;
+  }
+  .result-main { min-width: 0; }
+  .result-name { font-size: 24px; max-width: 58vw; }
+  .result-meta { font-size: 11.5px; }
+  .result-actions { flex-wrap: nowrap; justify-content: center; gap: 5px; width: 100%; }
+  .result-actions .btn { padding: 7px 9px; font-size: 12px; }
+  .btn-close-result { position: absolute; top: 6px; right: 6px; width: 28px; height: 28px; font-size: 13px; }
+
+  /* ---------- 底部控制栏 ---------- */
+  .controlbar { padding: 8px 10px; gap: 8px; }
+  .stats { gap: 12px; }
+  .stat-num { font-size: 17px; }
+  .round-hint { max-width: none; white-space: normal; text-align: center; }
+
+  /* ---------- 弹窗：贴满宽度 ---------- */
+  .modal { padding: 12px; }
+  .modal-box { width: 100%; max-height: 88svh; }
+  .modal-sm, .modal-lg { width: 100%; }
+  .modal-head { padding: 13px 15px; }
+  .modal-body { padding: 14px 15px; }
+  .modal-foot { padding: 0 15px 14px; }
+
+  /* ---------- 账号菜单：底部可能溢出 ---------- */
+  .user-menu { width: min(226px, calc(100vw - 24px)); max-height: calc(100svh - 96px); overflow-y: auto; }
+
+  /* ---------- 登录页 ---------- */
+  .login-screen {
+    align-items: flex-start;
+    padding: 12px;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    padding-left: calc(12px + env(safe-area-inset-left, 0px));
+    padding-right: calc(12px + env(safe-area-inset-right, 0px));
+  }
+  .login-card { border-radius: 14px; }
+  .login-brand { padding: 14px 16px; gap: 10px; }
+  .login-poster { max-height: 18svh; }
+  .login-form { padding: 18px 16px 20px; }
+  .login-pane h3 { font-size: 19px; }
+  .login-sub { margin-bottom: 14px; }
+  .login-methods { gap: 6px; }
+  .login-method { padding: 9px 4px; }
+  .field { margin-bottom: 12px; }
+
+  /* iOS：输入框字号 <16px 会在聚焦时放大整页 */
+  .input-lg, .input-mini, select.input-mini { font-size: 16px; }
+
+  /* ---------- 小游戏 ---------- */
+  .game-body { max-width: 100%; }
+  .game-grid { grid-template-columns: 1fr; }
+}
+
+/* ============================ ≤480px：窄屏手机 ============================ */
+@media (max-width: 480px) {
+  :root { --app-pad: 8px; }
+
+  .brand-logo { display: none; }
+  .brand-text h1 { font-size: 14.5px; }
+
+  /* 班级卡片固定两列，避免 auto-fill 掉成单列浪费纵向空间 */
+  .class-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .cc-name { font-size: 15px; }
+  .cc-stats { gap: 4px; padding: 6px 0; }
+  .cc-stat b { font-size: 15px; }
+  .cc-top-row { height: 24px; font-size: 12.5px; }
+  .cc-foot { font-size: 11px; }
+
+  /* 6 个快捷键改 3 列两行，指头够得着 */
+  .quick-row { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  .score-btn { padding: 10px 0; font-size: 13px; }
+  .custom-row { flex-wrap: wrap; }
+  .reason-row { flex-wrap: wrap; }
+
+  /* 摘要栏只留「班级总分 + 导出」，前三名在班级卡片里已经能看到 */
+  .wb-top3-wrap { display: none; }
+
+  /* 结果条：竖排「本轮抽中」标签太占宽，窄屏去掉 */
+  .result-label { display: none; }
+  .result-name { font-size: 24px; }
+  .result-score { padding: 0 10px; }
+
+  /* 登录页：省掉海报，表单全宽；三个登录方式文字允许折行 */
+  .login-brand-mid { display: none; }
+  .login-brand { padding: 12px 14px; }
+  .login-method > span { white-space: normal; line-height: 1.15; font-size: 11px; }
+  .login-brand-foot { font-size: 10.5px; }
+
+  .modal { padding: 8px; }
+  .modal-box { max-height: 92svh; }
+  .toast { max-width: 90vw; bottom: 76px; }
+}
+
+/* ============================ ≤380px：320px 级别的小屏 ============================ */
+@media (max-width: 380px) {
+  .brand-text h1 { font-size: 14px; }
+  .class-grid { grid-template-columns: 1fr; }
+  .stats { gap: 8px; }
+  .stat-divider { display: none; }
+  .login-form { padding: 14px 12px 16px; }
+  .login-method { padding: 8px 2px; }
+  .login-method > span { font-size: 10.5px; }
+  .result-actions .btn { padding: 8px 10px; font-size: 12px; }
+}
+
+/* ============================ 触屏：没有 hover，操作按钮必须常显 ============================ */
+@media (hover: none) {
+  /* 班级卡片右侧原来靠 hover 才出现的改名/导入/删除，改成卡片内常显的一行 */
+  .class-card { aspect-ratio: auto; }
+  .cc-head { flex-wrap: wrap; }
+  .cc-menu {
+    position: static;
+    flex: 1 0 100%;
+    justify-content: flex-end;
+    margin-top: 4px;
+    padding: 0;
+    background: transparent;
+    box-shadow: none;
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .class-card:hover .cc-rec, .class-card:focus-within .cc-rec { opacity: 1; }
+  /* 加分记录的删除按钮常显 */
+  .log-del { opacity: 1; }
+  .log-row:hover { background: transparent; }
+  /* 触屏没有 hover，去掉悬停位移，避免点完卡片残留 */
+  .class-card:hover, .class-card:focus-visible { transform: none; }
+}
+
+/* ============================ 触控目标放大到 40px 上下 ============================ */
+@media (pointer: coarse) {
+  .icon-btn { width: 40px; height: 40px; }
+  .cc-act { width: 36px; height: 36px; font-size: 14px; }
+  .log-row { grid-template-columns: minmax(0, 1fr) auto auto 26px; }
+  .log-del { width: 26px; height: 26px; font-size: 13px; }
+  .pw-eye { width: 40px; height: 40px; }
+  .panel-collapse { width: 36px; height: 36px; }
+  .user-menu-item { padding: 11px 12px; }
+  .login-method { min-height: 56px; }
+  .pill { padding: 7px 12px; }
+  .tab-btn { padding: 8px 14px; }
+  .remember-row { padding: 6px 0; }
+}
+
+/* ============================ 横屏手机（高度很矮） ============================ */
+@media (orientation: landscape) and (max-height: 520px) {
+  .login-screen { align-items: center; padding: 8px; }
+  .login-brand-mid { display: none; }
+  .login-brand { padding: 10px 14px; }
+  .login-form { padding: 12px 16px; }
+  .score-panel { max-height: none; }
+  .topbar { padding: 6px 10px; }
+}

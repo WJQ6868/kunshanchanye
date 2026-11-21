@@ -188,6 +188,13 @@
     var availW = W - padX * 2;
     var availH = H - padY;
     var MAX_W = 288;   // 单卡最大宽度，人少时别把一张卡撑满整屏
+    // 窄屏（手机）上别为了「铺满」硬加列：卡片一窄，名字就被截成单个字。
+    // 这里给一个最小卡宽，超出的列数直接不参与评分。
+    // 92px 是「名字三个字 + 左下总分 + 右下今日分」都放得下的下限，
+    // 低于这个宽度两个角标会撞在一起（360px 竖屏曾出现）。
+    var MIN_W = W < 560 ? 92 : 0;
+    // 窄屏上也不许把行高压到看不清名字：压不下去就让网格纵向滚动
+    var MIN_H = W < 560 ? 52 : 0;
 
     var best = null;
     for (var cols = 1; cols <= n; cols++) {
@@ -195,6 +202,7 @@
       var cw = (availW - gap * (cols - 1)) / cols;
       var ch = (availH - gap * (rows - 1)) / rows;
       if (cw <= 0 || ch <= 0) continue;
+      if (cw < MIN_W || ch < MIN_H) continue;
 
       cw = Math.min(cw, MAX_W);          // 先按上限收窄，评分用真实尺寸
       var ratio = cw / ch;
@@ -208,12 +216,23 @@
       if (cw < 116 || ch < 56) score += 1.4;
       if (!best || score < best.score) best = { cols: cols, rows: rows, score: score, cw: cw, ch: ch };
     }
-    if (!best) return;
+    if (!best) {
+      // 人数多到窄屏怎么排都太小：按最小卡宽定列数，行高保底，剩下的靠滚动
+      var cc = Math.max(1, Math.floor((availW + gap) / (MIN_W + gap)));
+      var rr = Math.ceil(n / cc);
+      best = {
+        cols: cc,
+        rows: rr,
+        cw: (availW - gap * (cc - 1)) / cc,
+        ch: Math.max(MIN_H || 52, (availH - gap * (rr - 1)) / rr),
+        scroll: true
+      };
+    }
 
     gridEl.style.gridTemplateColumns = 'repeat(' + best.cols + ', ' + Math.round(best.cw) + 'px)';
     gridEl.style.gridAutoRows = Math.round(best.ch) + 'px';
     // 列方向居中、行方向居中，卡片严格保持算出来的比例（不被拉伸成瘦长条）
-    gridEl.style.alignContent = 'center';
+    gridEl.style.alignContent = best.scroll ? 'start' : 'center';
     gridEl.style.justifyContent = 'center';
 
     // 字号跟随卡片尺寸：人少时卡片大、字也大，投影时后排也看得清

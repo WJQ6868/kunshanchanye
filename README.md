@@ -622,6 +622,42 @@ node scripts/smoke.mjs http://127.0.0.1:3210 <管理员密码>
 
 静态根是 `rollcall/`，里面有源码、SQLite 库、构建脚本。服务端已按**路径段黑名单**拦掉 `server/`、`tools/`、`data/`、`.git`、`.npmcache` 与所有隐藏文件，并做 `path.normalize` + 前缀校验防穿越。实测 `/server/src/config.ts`、`/server/data/rollcall.db`、`/../server/...`、`/%2e%2e/server/...` 全部 404。
 
+### 数据备份
+
+SQLite 是单文件库，**没有备份就等于没有后悔药**。部署时配了每小时自动热备：
+
+```bash
+/usr/local/bin/wjq-backup          # 立刻备份一份
+systemctl list-timers wjq-backup.timer   # 看下次触发时间
+```
+
+| 项目 | 值 |
+| --- | --- |
+| 方式 | `sqlite3 .backup`（SQLite 在线备份 API，WAL 下也能拿到一致快照），失败回退 `cp` |
+| 频率 | 每小时一次（`OnCalendar=hourly`，错过的会自动补跑一次） |
+| 落点 | `/var/backups/wjq/rollcall-<YYYYMMDD-HHMMSS>.db`，权限 600 |
+| 保留 | 最近 168 份（约 7 天）+ 每天首份保留 30 天 |
+| 校验 | 每次写完跑 `PRAGMA integrity_check`，**校验失败就删掉这份并报错**（坏备份比没备份更危险） |
+
+**为什么不是每天一份**：课堂加分是实时写入的。2026-11-21 一天内出现过两次「空基线覆盖」，都是在下午——凌晨那份备份救不回来，只能靠手动补备。改成每小时之后，最坏情况丢一小时的数据。
+
+**恢复步骤**（库在 `/var/backups/wjq/`，属 `root:root`，直接 `sqlite3` 读会报 `attempt to write a readonly database`，要先拷出来）：
+
+```bash
+sudo systemctl stop wjq-rollcall
+sudo cp /var/backups/wjq/rollcall-<时间戳>.db /tmp/restore-src.db
+sudo chown ubuntu:ubuntu /tmp/restore-src.db && chmod 644 /tmp/restore-src.db
+sqlite3 /tmp/restore-src.db "PRAGMA integrity_check;"    # 确认是 ok
+sudo rm -f /home/ubuntu/wjq/server/data/rollcall.db-wal /home/ubuntu/wjq/server/data/rollcall.db-shm
+sudo cp /tmp/restore-src.db /home/ubuntu/wjq/server/data/rollcall.db
+sudo chown ubuntu:ubuntu /home/ubuntu/wjq/server/data/rollcall.db
+sudo chmod 600 /home/ubuntu/wjq/server/data/rollcall.db
+sudo systemctl start wjq-rollcall
+curl -s https://<域名>/api/v1/readyz
+```
+
+**注意 WAL 文件必须先删**：库换成旧的、WAL 还是新的，SQLite 会把新 WAL 重放到旧库上，结果既不是旧的也不是新的。这是恢复里最容易踩的一步。
+
 ---
 
 

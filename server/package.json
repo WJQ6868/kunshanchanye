@@ -1,0 +1,20 @@
+{
+  "name": "rollcall-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "课堂加分与随机点名 —— 服务端（模块化单体，Node + TypeScript，SQLite/PostgreSQL 双驱动）",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "start": "node src/index.ts",
+    "dev": "node --watch src/index.ts",
+    "check": "node --check src/index.ts",
+    "health": "node scripts/health-check.ts"
+  },
+  "dependencies": {},
+  "optionalDependencies": {
+    "pg": "^8.13.0"
+  }
+}

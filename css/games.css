@@ -1,0 +1,714 @@
+/* ============================================================
+   games.css — 课堂小游戏页样式（由 tools/scope-games-css.mjs 生成后手工补充）
+   ------------------------------------------------------------
+   所有规则都限定在 #screenGames 之内，避免污染主应用的全局样式。
+   颜色令牌全部换成 rollcall 的白蓝体系，深色主题自动跟随。
+   ============================================================ */
+
+/* 旧项目的橙色纸张令牌 → rollcall 白蓝令牌
+   注意：--line / --accent / --accent-soft 这些与 :root 同名的令牌
+   不能在这里写 var(--同名)，那会构成自定义属性自引用环，浏览器判定
+   invalid 后整条失效（表现为按钮背景变透明）。同名令牌直接继承即可。 */
+#screenGames {
+  --paper: var(--bg-0);
+  --paper-2: var(--bg-2);
+  --paper-3: var(--bg-3);
+  --ink: var(--text);
+  --ink-soft: var(--text-dim);
+  --muted: var(--text-mute, #64748b);
+  --accent-deep: var(--accent-2);
+  --gold: var(--warn);
+  --ok: var(--ok-text, #0b6b4a);
+  --ok-soft: var(--accent-soft);
+  --bad: var(--danger);
+  --bad-soft: #fde8e8;
+  --sans: inherit;
+  --serif: inherit;
+  --ease: var(--ease-out);
+  --shadow: var(--shadow-md);
+  color: var(--text);
+  font-family: inherit;
+}
+
+#screenGames *,#screenGames *::before,#screenGames *::after{box-sizing:border-box}
+#screenGames h1,#screenGames h2,#screenGames h3,#screenGames h4,#screenGames p,#screenGames ul,#screenGames ol,#screenGames dl,#screenGames dd{margin:0}
+#screenGames ul,#screenGames ol{padding:0;list-style:none}
+#screenGames input,#screenGames textarea,#screenGames select{font:inherit;color:inherit}
+#screenGames input[type=number]::-webkit-outer-spin-button,#screenGames input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+/* ============================================================
+   通用组件
+   ============================================================ */
+#screenGames .btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  padding:13px 24px;border-radius:999px;
+  font-weight:700;font-size:15px;letter-spacing:.02em;
+  border:1px solid transparent;
+  transition:transform .2s var(--ease),background .2s,color .2s,border-color .2s,box-shadow .2s;
+  white-space:nowrap;
+}
+#screenGames .btn:active{transform:scale(.97)}
+#screenGames .btn-accent{background:var(--accent);color:var(--on-accent);box-shadow:0 12px 28px -16px rgba(37,99,235,.9)}
+#screenGames .btn-accent:hover{background:var(--accent-2)}
+#screenGames .btn-ink{background:var(--text);color:var(--bg-1)}
+#screenGames .btn-ink:hover{background:#1e293b}
+#screenGames .btn-ghost{border-color:var(--line-strong);color:var(--text-dim)}
+#screenGames .btn-ghost:hover{background:var(--bg-3);border-color:var(--line-strong);color:var(--text)}
+#screenGames .btn-line{border-color:var(--line-strong);color:var(--ink)}
+#screenGames .btn-line:hover{background:var(--bg-3)}
+#screenGames .btn-sm{padding:9px 16px;font-size:13px}
+#screenGames .btn-lg{padding:16px 30px;font-size:16px}
+#screenGames .btn:disabled{opacity:.55;background:var(--bg-4);cursor:not-allowed;transform:none}
+#screenGames .lede{
+  margin-top:28px;max-width:46ch;
+  font-size:clamp(15px,1.4vw,19px);line-height:1.85;
+  color:var(--text-dim);
+}
+/* hero 入场 */
+@keyframes riseIn{from{opacity:0;transform:translateY(26px)}to{opacity:1;transform:none}}
+#screenGames .sec-sub{
+  margin-top:16px;max-width:66ch;font-size:15px;line-height:1.8;color:var(--muted);
+}
+#screenGames .tier{
+  font-size:10.5px;font-weight:700;letter-spacing:.1em;
+  padding:4px 8px;border-radius:4px;white-space:nowrap;
+}
+#screenGames .tier-play{background:var(--accent);color:var(--on-accent)}
+#screenGames .tier-tool{background:rgba(217,119,6,.14);color:var(--warn-text)}
+#screenGames .tier-card{background:var(--bg-3);color:var(--muted)}
+/* ============================================================
+   页脚
+   ============================================================ */
+#screenGames .foot{background:var(--ink);color:var(--paper);padding:96px 0 54px}
+#screenGames .foot-line{
+  font-size:clamp(34px,5vw,68px);font-weight:800;line-height:1.18;letter-spacing:-.03em;
+}
+#screenGames .foot-line::after{
+  content:"";display:block;width:76px;height:3px;background:var(--accent);margin-top:34px;
+}
+#screenGames .foot-row{
+  margin-top:64px;padding-top:22px;border-top:1px solid rgba(251,243,231,.16);
+  display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap;
+  font-size:12px;letter-spacing:.06em;color:rgba(251,243,231,.5);
+}
+/* ============================================================
+   游戏面板
+   ============================================================ */
+#screenGames .sheet{
+  position:fixed;inset:0;z-index:100;
+  display:flex;align-items:center;justify-content:center;
+  padding:24px;
+  opacity:0;visibility:hidden;
+  transition:opacity .3s var(--ease),visibility .3s;
+}
+#screenGames .sheet.open{opacity:1;visibility:visible}
+#screenGames .sheet-backdrop{
+  position:absolute;inset:0;background:rgba(20,24,39,.62);
+  backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+}
+#screenGames .sheet-panel{
+  position:relative;z-index:2;
+  width:min(1240px,100%);height:min(92svh,940px);
+  background:var(--paper);border-radius:20px;box-shadow:var(--shadow);
+  display:flex;flex-direction:column;overflow:hidden;
+  transform:translateY(16px) scale(.985);opacity:0;
+  transition:transform .4s var(--ease),opacity .3s;
+}
+#screenGames .sheet.open .sheet-panel{transform:none;opacity:1}
+#screenGames .sheet-panel:focus{outline:none}
+#screenGames .sheet-head{
+  display:flex;align-items:center;justify-content:space-between;gap:20px;
+  padding:22px 30px;border-bottom:1px solid var(--line);flex:none;
+}
+#screenGames .sheet-kicker{font-size:11px;letter-spacing:.2em;color:var(--accent);font-weight:700}
+#screenGames .sheet-head h2{
+  margin-top:5px;font-size:24px;font-weight:800;letter-spacing:-.01em;
+}
+#screenGames .sheet-close{
+  display:flex;align-items:center;gap:7px;
+  padding:9px 15px;border:1px solid var(--line);border-radius:999px;
+  font-size:13px;color:var(--ink-soft);
+  transition:background .2s,border-color .2s;
+}
+#screenGames .sheet-close svg{width:14px;height:14px;stroke:currentColor;stroke-width:1.8;fill:none}
+#screenGames .sheet-close:hover{background:var(--paper-2);border-color:var(--line-strong)}
+#screenGames .sheet-grid{display:grid;grid-template-columns:minmax(300px,356px) 1fr;flex:1;min-height:0}
+#screenGames .sheet-rules{
+  overflow:auto;padding:30px;background:var(--paper-2);
+  border-right:1px solid var(--line);
+}
+#screenGames .sheet-stage{
+  overflow:auto;padding:30px 34px 26px;background:var(--paper);
+  scroll-behavior:smooth;
+}
+
+/* ---------- 左侧规则栏（scope 脚本把 .rules-/.mats/.tips-list 当页面级样式丢弃了，
+   这里按新面板结构补回来） ---------- */
+#screenGames .rules-block + .rules-block{margin-top:26px;padding-top:22px;border-top:1px solid var(--line)}
+#screenGames .rules-block h3{
+  font-size:13px;font-weight:800;letter-spacing:.12em;
+  color:var(--accent);margin-bottom:12px;
+}
+#screenGames .rules-list{counter-reset:rl;display:flex;flex-direction:column;gap:10px}
+#screenGames .rules-list li{
+  position:relative;padding-left:26px;
+  font-size:13.5px;line-height:1.75;color:var(--ink-soft);
+}
+#screenGames .rules-list li::before{
+  counter-increment:rl;content:counter(rl);
+  position:absolute;left:0;top:2px;
+  width:18px;height:18px;border-radius:50%;
+  display:grid;place-items:center;
+  font-size:10.5px;font-weight:700;
+  background:var(--accent-soft);color:var(--accent);
+  border:1px solid var(--accent-line);
+}
+#screenGames .mats{font-size:13px;line-height:1.7;color:var(--ink-soft)}
+#screenGames .tips-list{display:flex;flex-direction:column;gap:7px;margin-top:12px}
+#screenGames .tips-list li{
+  position:relative;padding-left:16px;
+  font-size:12.5px;line-height:1.7;color:var(--muted);
+}
+#screenGames .tips-list li::before{
+  content:'';position:absolute;left:2px;top:8px;
+  width:5px;height:5px;border-radius:50%;background:var(--accent-line);
+}
+/* ============================================================
+   舞台通用组件
+   ============================================================ */
+#screenGames .stage{max-width:880px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+#screenGames .stage-top{
+  display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between;
+}
+#screenGames .hud{
+  display:inline-flex;align-items:baseline;gap:8px;
+  padding:9px 14px;border:1px solid var(--line);border-radius:10px;
+  background:rgba(255,255,255,.42);
+}
+#screenGames .hud-k{font-size:11px;letter-spacing:.1em;color:var(--muted)}
+#screenGames .hud-v,#screenGames .hud b{font-family:var(--serif);font-size:17px;font-weight:700;color:var(--ink)}
+#screenGames .hud b{font-size:19px}
+#screenGames .meter{height:5px;background:rgba(20,24,39,.1);border-radius:999px;overflow:hidden}
+#screenGames .meter i{display:block;height:100%;width:100%;background:var(--accent);border-radius:999px;transition:width .12s linear}
+#screenGames .big-box{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;
+  min-height:210px;padding:34px 24px;border-radius:18px;
+  background:var(--paper-2);border:1px solid var(--line);
+  text-align:center;
+}
+#screenGames .big-num{
+  font-size:clamp(64px,9vw,116px);font-weight:800;line-height:.95;letter-spacing:-.04em;
+  font-variant-numeric:tabular-nums;
+}
+#screenGames .big-num.boom{color:var(--bad);animation:pop .45s var(--ease)}
+#screenGames .big-sub{font-size:13.5px;color:var(--muted);max-width:44ch;line-height:1.7}
+#screenGames .big-sub b{color:var(--ink);font-weight:700}
+#screenGames .btn-row{display:flex;gap:10px;flex-wrap:wrap}
+#screenGames .input-row{display:flex;gap:10px;flex-wrap:wrap}
+#screenGames .input-row .ipt{flex:1;min-width:140px}
+#screenGames .ipt,#screenGames textarea.ipt{
+  width:100%;padding:13px 16px;
+  background:#FFFCF6;border:1px solid var(--line-strong);border-radius:10px;
+  font-size:16px;transition:border-color .2s,box-shadow .2s;
+}
+#screenGames .ipt:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(239,90,40,.13)}
+#screenGames .ipt::placeholder{color:#B3AC9E}
+/* 语音输入按钮 */
+#screenGames .voice-wrap{position:relative;display:block;flex:1 1 140px;min-width:0}
+#screenGames .voice-wrap>.ipt{width:100%;padding-right:44px}
+#screenGames .voice-btn{
+  position:absolute;right:6px;top:50%;transform:translateY(-50%);
+  width:30px;height:30px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  background:rgba(20,24,39,.06);color:var(--muted);
+  transition:background .2s,color .2s,box-shadow .2s;
+}
+#screenGames .voice-btn svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round}
+#screenGames .voice-btn:hover{background:var(--accent-soft);color:var(--accent-deep)}
+#screenGames .voice-btn.listening{background:var(--accent);color:#FFF;animation:voicePulse 1.4s ease-in-out infinite}
+@keyframes voicePulse{
+  0%,100%{box-shadow:0 0 0 0 rgba(239,90,40,.35)}
+  50%{box-shadow:0 0 0 6px rgba(239,90,40,0)}
+}
+#screenGames .stage-note{font-size:12.5px;line-height:1.8;color:var(--muted)}
+#screenGames .stage-note b{color:var(--ink-soft)}
+#screenGames .msg{font-size:13px;line-height:1.7;color:var(--ink-soft);min-height:1.4em}
+#screenGames .msg.ok{color:var(--ok);font-weight:600}
+#screenGames .msg.bad{color:var(--bad);font-weight:600}
+#screenGames .chips{display:flex;flex-wrap:wrap;gap:8px}
+#screenGames .chip{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:7px 13px;border-radius:999px;
+  background:rgba(20,24,39,.055);font-size:13px;color:var(--ink-soft);
+  animation:chipIn .3s var(--ease);
+}
+#screenGames .chip.ok{background:var(--ok-soft);color:var(--ok)}
+#screenGames .chip.bad{background:var(--bad-soft);color:var(--bad)}
+#screenGames .chip.miss{background:rgba(20,24,39,.045);color:var(--muted);text-decoration:line-through}
+#screenGames .chip .x{font-size:11px;opacity:.6}
+#screenGames .seg{display:flex;gap:6px;padding:5px;background:var(--paper-2);border-radius:12px;flex-wrap:wrap}
+#screenGames .seg button{
+  flex:1;min-width:88px;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:600;color:var(--ink-soft);
+  transition:all .2s;
+}
+#screenGames .seg button[aria-pressed="true"]{background:var(--paper);box-shadow:0 2px 8px rgba(20,24,39,.08);color:var(--ink)}
+#screenGames .result{
+  padding:22px 24px;border-radius:14px;border:1px solid var(--line);
+  background:var(--paper-2);display:grid;gap:10px;
+}
+#screenGames .result.ok{background:var(--ok-soft);border-color:rgba(15,122,87,.24)}
+#screenGames .result.bad{background:var(--bad-soft);border-color:rgba(196,61,61,.24)}
+#screenGames .result h3{font-size:19px;font-weight:800}
+#screenGames .result p{font-size:13.5px;line-height:1.75;color:var(--ink-soft)}
+#screenGames .result .draw{font-size:15px;font-weight:700;color:var(--ink)}
+#screenGames .chain{display:flex;flex-wrap:wrap;gap:8px}
+#screenGames .chain li{
+  padding:8px 13px;border-radius:8px;background:rgba(20,24,39,.05);
+  font-size:14px;color:var(--ink-soft);animation:chipIn .3s var(--ease);
+}
+#screenGames .chain li.head{background:var(--ink);color:var(--paper)}
+#screenGames .chain-scroll{max-height:172px;overflow:auto;padding-right:4px}
+#screenGames .chain-sentence{
+  padding:22px 24px;border-radius:12px;
+  background:var(--paper-2);border-left:3px solid var(--accent);
+  font-size:clamp(18px,2.1vw,24px);line-height:1.9;font-weight:600;
+  color:var(--ink);word-break:break-word;
+}
+#screenGames .chain-sentence b{color:var(--accent-deep);font-size:1.12em}
+#screenGames .range-track{
+  position:relative;height:14px;border-radius:999px;overflow:hidden;
+  background:rgba(20,24,39,.08);
+}
+#screenGames .range-track .band{
+  position:absolute;top:0;bottom:0;border-radius:999px;background:var(--accent);opacity:.85;
+  transition:left .35s var(--ease),width .35s var(--ease);
+}
+#screenGames .range-track .pin{
+  position:absolute;top:-3px;width:3px;height:20px;background:var(--ink);
+  transition:left .35s var(--ease);
+}
+#screenGames .range-labels{display:flex;justify-content:space-between;margin-top:-8px;font-size:11px;color:var(--muted);letter-spacing:.1em}
+/* 数字炸弹：自定义范围 */
+#screenGames .bomb-range{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:11.5px;color:var(--muted)}
+#screenGames .bomb-range-label{letter-spacing:.08em}
+#screenGames .bomb-range .ipt{width:96px;padding:8px 10px;font-size:14px;text-align:center}
+#screenGames .bomb-range-dash{color:var(--line-strong)}
+#screenGames .bomb-range .btn{flex:none}
+/* 数字炸弹：五档温度（烫/热/温/凉/冰） */
+#screenGames .zb-box{
+  gap:8px;
+  transition:background .3s var(--ease),border-color .3s var(--ease);
+}
+#screenGames .zb-thermo{
+  font-size:clamp(44px,6vw,68px);line-height:1;
+  transition:transform .3s var(--ease);
+}
+#screenGames .zb-temp{
+  font-size:clamp(30px,4.2vw,46px);font-weight:800;line-height:1.1;
+  letter-spacing:.06em;color:var(--ink);
+  transition:color .3s var(--ease);
+}
+#screenGames .zb-box[data-level="boil"]{background:rgba(220,38,38,.1);border-color:rgba(220,38,38,.4)}
+#screenGames .zb-box[data-level="hot"]{background:rgba(234,88,12,.09);border-color:rgba(234,88,12,.36)}
+#screenGames .zb-box[data-level="warm"]{background:rgba(217,119,6,.08);border-color:rgba(217,119,6,.3)}
+#screenGames .zb-box[data-level="cool"]{background:rgba(2,132,199,.08);border-color:rgba(2,132,199,.28)}
+#screenGames .zb-box[data-level="cold"]{background:rgba(37,99,235,.09);border-color:rgba(37,99,235,.3)}
+#screenGames .zb-temp[data-level="boil"]{color:#b91c1c}
+#screenGames .zb-temp[data-level="hot"]{color:#c2410c}
+#screenGames .zb-temp[data-level="warm"]{color:#b45309}
+#screenGames .zb-temp[data-level="cool"]{color:#0369a1}
+#screenGames .zb-temp[data-level="cold"]{color:#1d4ed8}
+#screenGames .zb-temp[data-level="boom"]{color:var(--danger);animation:pop .45s var(--ease)}
+#screenGames .chip.zb-chip{font-variant-numeric:tabular-nums}
+#screenGames .chip.zb-chip[data-level="boil"]{background:rgba(220,38,38,.12);color:#b91c1c}
+#screenGames .chip.zb-chip[data-level="hot"]{background:rgba(234,88,12,.12);color:#c2410c}
+#screenGames .chip.zb-chip[data-level="warm"]{background:rgba(217,119,6,.12);color:#b45309}
+#screenGames .chip.zb-chip[data-level="cool"]{background:rgba(2,132,199,.12);color:#0369a1}
+#screenGames .chip.zb-chip[data-level="cold"]{background:rgba(37,99,235,.12);color:#1d4ed8}
+html[data-theme="gold"] #screenGames .zb-temp,
+html[data-theme="blue"] #screenGames .zb-temp{color:var(--text)}
+html[data-theme="gold"] #screenGames .zb-temp[data-level="boil"],
+html[data-theme="blue"] #screenGames .zb-temp[data-level="boil"]{color:#fca5a5}
+html[data-theme="gold"] #screenGames .zb-temp[data-level="hot"],
+html[data-theme="blue"] #screenGames .zb-temp[data-level="hot"]{color:#fdba74}
+html[data-theme="gold"] #screenGames .zb-temp[data-level="warm"],
+html[data-theme="blue"] #screenGames .zb-temp[data-level="warm"]{color:#fcd34d}
+html[data-theme="gold"] #screenGames .zb-temp[data-level="cool"],
+html[data-theme="blue"] #screenGames .zb-temp[data-level="cool"]{color:#7dd3fc}
+html[data-theme="gold"] #screenGames .zb-temp[data-level="cold"],
+html[data-theme="blue"] #screenGames .zb-temp[data-level="cold"]{color:#93c5fd}
+html[data-theme="gold"] #screenGames .chip.zb-chip,
+html[data-theme="blue"] #screenGames .chip.zb-chip{color:var(--text-dim)}
+
+/* ============================================================
+   原创大屏玩法：少数派 / 站队 / 三句话
+   ============================================================ */
+/* 少数派 */
+#screenGames .sp-list{display:grid;gap:10px}
+#screenGames .sp-item{
+  display:grid;grid-template-columns:auto minmax(0,1fr) auto auto auto;
+  align-items:center;gap:12px;
+  padding:14px 16px;border-radius:14px;
+  border:1px solid var(--line);background:var(--paper-2);
+  transition:background .25s var(--ease),border-color .25s var(--ease),transform .25s var(--ease);
+}
+#screenGames .sp-no{
+  width:30px;height:30px;flex:none;border-radius:9px;
+  display:grid;place-items:center;
+  background:var(--accent-soft);color:var(--accent);
+  font-size:14px;font-weight:800;
+}
+#screenGames .sp-text{
+  width:100%;border:none;background:transparent;padding:6px 2px;
+  font-size:clamp(17px,1.9vw,22px);font-weight:700;color:var(--ink);
+  border-bottom:1px dashed transparent;
+}
+#screenGames .sp-text:focus{outline:none;border-bottom-color:var(--accent-line)}
+#screenGames .sp-count{
+  min-width:64px;text-align:right;
+  font-size:clamp(24px,2.8vw,34px);font-weight:800;color:var(--ink);
+  font-variant-numeric:tabular-nums;
+}
+#screenGames .sp-item.is-min{
+  background:rgba(217,119,6,.1);border-color:rgba(217,119,6,.45);
+  transform:scale(1.015);
+}
+#screenGames .sp-item.is-min .sp-count{color:var(--warn-text)}
+#screenGames .sp-item.is-min .sp-no{background:rgba(217,119,6,.16);color:var(--warn-text)}
+
+/* 站队 */
+#screenGames .sd-scale{
+  display:grid;grid-template-columns:1fr 96px 1fr;align-items:center;
+  gap:0;margin:8px 0;
+}
+#screenGames .sd-pan{
+  display:grid;justify-items:center;gap:10px;
+  padding:18px 14px;border-radius:16px;
+  border:1px solid var(--line);background:var(--paper-2);
+}
+#screenGames .sd-pan-l{border-color:rgba(37,99,235,.32);background:rgba(37,99,235,.06)}
+#screenGames .sd-pan-r{border-color:rgba(2,132,199,.32);background:rgba(2,132,199,.06)}
+#screenGames .sd-text{
+  width:100%;border:none;background:transparent;text-align:center;padding:4px 2px;
+  font-size:clamp(16px,1.8vw,21px);font-weight:700;color:var(--ink);
+  border-bottom:1px dashed transparent;
+}
+#screenGames .sd-text:focus{outline:none;border-bottom-color:var(--accent-line)}
+#screenGames .sd-num{
+  font-size:clamp(28px,3.4vw,42px);font-weight:800;color:var(--ink);
+  font-variant-numeric:tabular-nums;line-height:1;
+}
+#screenGames .sd-beam{
+  position:relative;height:6px;border-radius:999px;
+  background:linear-gradient(90deg,var(--accent),var(--cyan));
+  transform-origin:50% 50%;
+  transition:transform .55s var(--ease-out);
+}
+#screenGames .sd-fulcrum{
+  position:absolute;left:50%;top:6px;transform:translateX(-50%);
+  width:0;height:0;
+  border-left:14px solid transparent;border-right:14px solid transparent;
+  border-bottom:18px solid var(--line-strong);
+}
+#screenGames .sd-pct{
+  text-align:center;font-size:clamp(18px,2.1vw,24px);font-weight:800;
+  color:var(--ink);letter-spacing:.04em;font-variant-numeric:tabular-nums;
+}
+
+/* 三句话 */
+#screenGames .th-list{display:grid;gap:10px}
+#screenGames .th-item{
+  display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;
+  align-items:center;gap:12px;
+  padding:14px 16px;border-radius:14px;
+  border:1px solid var(--line);background:var(--paper-2);
+  transition:background .25s var(--ease),border-color .25s var(--ease),transform .25s var(--ease);
+}
+#screenGames .th-no{
+  width:30px;height:30px;flex:none;border-radius:50%;
+  display:grid;place-items:center;
+  background:var(--accent-soft);color:var(--accent);
+  font-size:14px;font-weight:800;
+}
+#screenGames .th-text{
+  width:100%;border:none;background:transparent;padding:6px 2px;
+  font-size:clamp(17px,1.9vw,22px);font-weight:700;color:var(--ink);
+  border-bottom:1px dashed transparent;
+}
+#screenGames .th-text:focus{outline:none;border-bottom-color:var(--accent-line)}
+#screenGames .th-count{
+  min-width:76px;text-align:right;
+  font-size:clamp(15px,1.7vw,19px);font-weight:800;color:var(--text-dim);
+  font-variant-numeric:tabular-nums;
+}
+#screenGames .th-item.is-top{
+  background:rgba(220,38,38,.08);border-color:rgba(220,38,38,.42);
+  transform:scale(1.015);
+}
+#screenGames .th-item.is-top .th-count{color:var(--danger)}
+#screenGames .th-item.is-top .th-no{background:rgba(220,38,38,.14);color:var(--danger)}
+
+html[data-theme="gold"] #screenGames .sp-item.is-min,
+html[data-theme="blue"] #screenGames .sp-item.is-min{background:rgba(217,119,6,.18)}
+html[data-theme="gold"] #screenGames .th-item.is-top,
+html[data-theme="blue"] #screenGames .th-item.is-top{background:rgba(220,38,38,.16)}
+html[data-theme="gold"] #screenGames .sd-fulcrum,
+html[data-theme="blue"] #screenGames .sd-fulcrum{border-bottom-color:var(--line)}
+
+#screenGames .expand-list{display:grid;border-top:1px solid var(--line);max-height:236px;overflow:auto}
+#screenGames .expand-list li{
+  display:flex;gap:14px;align-items:baseline;
+  padding:11px 4px;border-bottom:1px solid var(--line);
+  font-size:14px;color:var(--ink-soft);
+}
+#screenGames .expand-list li.current{background:rgba(239,90,40,.05);color:var(--ink);font-weight:600}
+#screenGames .ex-idx{font-family:var(--serif);font-style:italic;font-size:11px;color:var(--muted);flex:none}
+#screenGames .ex-text{flex:1;line-height:1.7;word-break:break-word}
+#screenGames .ex-len{font-size:11px;color:var(--muted);flex:none}
+#screenGames .charline{display:flex;flex-wrap:wrap;gap:5px;justify-content:center;max-width:100%}
+#screenGames .charline span,#screenGames .charline em{
+  font-size:clamp(30px,4.4vw,50px);font-weight:800;line-height:1.25;letter-spacing:.02em;
+  padding:1px 4px;border-radius:6px;
+}
+#screenGames .charline em{color:var(--accent-deep);background:var(--accent-soft);font-style:normal;animation:pop .4s var(--ease)}
+#screenGames .words3{display:flex;gap:10px;flex-wrap:wrap}
+#screenGames .word-pill{
+  padding:13px 22px;border-radius:10px;background:var(--ink);color:var(--paper);
+  font-size:clamp(17px,2vw,22px);font-weight:700;letter-spacing:.04em;
+  animation:chipIn .3s var(--ease);
+}
+#screenGames .vote-list{display:grid;gap:10px}
+#screenGames .vote-row{
+  display:flex;gap:18px;align-items:center;justify-content:space-between;
+  padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:#FFFCF6;
+}
+#screenGames .vote-row p{font-size:14px;line-height:1.75;color:var(--ink-soft)}
+#screenGames .vote-actions{display:flex;align-items:center;gap:10px;flex:none}
+#screenGames .tag{font-size:11px;letter-spacing:.08em;color:var(--muted);white-space:nowrap}
+#screenGames .split{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+/* 笑掉大牙 */
+#screenGames .reels{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+#screenGames .reel{
+  border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#FFFCF6;
+}
+#screenGames .reel-k{
+  display:block;padding:8px 10px;background:rgba(20,24,39,.05);
+  font-size:11px;letter-spacing:.16em;color:var(--muted);
+}
+#screenGames .reel-v{
+  display:flex;align-items:center;justify-content:center;
+  min-height:88px;padding:12px 8px;text-align:center;
+  font-size:16px;font-weight:700;line-height:1.35;
+}
+#screenGames .reel.spinning .reel-v{color:var(--accent);opacity:.75}
+#screenGames .joke-sentence{
+  min-height:96px;display:flex;align-items:center;justify-content:center;
+  padding:22px 26px;border-radius:14px;background:var(--ink);color:var(--paper);
+  font-size:clamp(19px,2.4vw,28px);font-weight:700;line-height:1.6;text-align:center;
+}
+#screenGames .joke-sentence.empty{background:var(--paper-2);color:var(--muted);font-weight:400;font-size:14px;border:1px dashed var(--line-strong)}
+/* 画板 */
+#screenGames .canvas-wrap{
+  position:relative;border:1px solid var(--line-strong);border-radius:12px;overflow:hidden;
+  background:#FFFDF7;
+}
+#screenGames .canvas-wrap canvas{display:block;width:100%;height:clamp(260px,38vh,400px);touch-action:none;cursor:crosshair}
+#screenGames .draw-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+#screenGames .swatch{
+  width:26px;height:26px;border-radius:50%;border:2px solid transparent;
+  transition:transform .15s,border-color .15s;
+}
+#screenGames .swatch[aria-pressed="true"]{border-color:var(--ink);transform:scale(1.08)}
+#screenGames .size-dot{display:inline-flex;align-items:center;justify-content:center;min-width:30px;height:30px;border-radius:50%;border:1px solid var(--line)}
+#screenGames .size-dot[aria-pressed="true"]{border-color:var(--ink);background:rgba(20,24,39,.06)}
+#screenGames .size-dot i{display:block;border-radius:50%;background:var(--ink)}
+#screenGames .word-card{
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  padding:16px 20px;border-radius:12px;border:1px dashed var(--line-strong);background:var(--paper-2);
+}
+#screenGames .word-card .word{
+  font-size:clamp(24px,3vw,36px);font-weight:800;letter-spacing:.08em;
+  filter:blur(9px);transition:filter .3s;user-select:none;
+}
+#screenGames .word-card.reveal .word{filter:none;color:var(--accent-deep)}
+#screenGames .word-card .word-tip{font-size:12px;color:var(--muted)}
+/* 物品托盘 */
+#screenGames .tray{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+#screenGames .tray-item{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;
+  aspect-ratio:1/.94;border-radius:10px;background:#FFFCF6;border:1px solid var(--line);
+  transition:opacity .3s,transform .3s;
+  animation:chipIn .35s var(--ease) both;
+}
+#screenGames .tray-item svg{width:26px;height:26px;stroke:var(--ink-soft);fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+#screenGames .tray-item span{font-size:11.5px;color:var(--ink-soft);letter-spacing:.03em}
+#screenGames .tray.covered .tray-item{opacity:.06;transform:scale(.94);filter:blur(4px)}
+/* 青蛙 */
+#screenGames .quiz3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+#screenGames .quiz3 label{display:grid;gap:7px;font-size:12px;letter-spacing:.12em;color:var(--muted)}
+#screenGames .quiz3 .ipt{text-align:center;font-size:22px;font-weight:700;font-family:var(--serif)}
+#screenGames .chant{
+  padding:20px;border-radius:12px;background:var(--paper-2);border-left:3px solid var(--accent);
+  font-size:16px;line-height:2;color:var(--ink-soft);
+}
+#screenGames .chant b{color:var(--ink)}
+/* 静态投影卡 */
+#screenGames .projection{
+  border:1px solid var(--line);border-radius:16px;overflow:hidden;background:#FFFCF6;
+}
+#screenGames .projection-top{padding:30px 32px 24px;border-bottom:1px solid var(--line);background:var(--paper-2)}
+#screenGames .projection-top .kicker{font-size:12px}
+#screenGames .projection-top h3{font-size:clamp(32px,3.8vw,52px);font-weight:800;letter-spacing:-.02em;margin-top:8px}
+#screenGames .projection-body{padding:30px 32px 34px;display:grid;gap:20px}
+#screenGames .projection-body ol{counter-reset:p;display:grid;gap:16px}
+#screenGames .projection-body li{
+  counter-increment:p;position:relative;padding-left:36px;
+  font-size:16.5px;line-height:1.85;color:var(--ink-soft);
+}
+#screenGames .projection-body li::before{
+  content:counter(p,decimal-leading-zero);position:absolute;left:0;top:0;
+  font-family:var(--serif);font-style:italic;font-size:13px;color:var(--accent);
+}
+#screenGames .projection-mats{
+  margin-top:4px;padding-top:16px;border-top:1px solid var(--line);
+  font-size:13px;color:var(--muted);line-height:1.8;
+}
+#screenGames .notice{
+  padding:16px 18px;border-radius:10px;background:rgba(224,161,0,.1);
+  border:1px solid rgba(224,161,0,.28);font-size:13px;line-height:1.8;color:#7A5600;
+}
+#screenGames .notice.ink{background:rgba(20,24,39,.05);border-color:var(--line);color:var(--muted)}
+/* Toast */
+#screenGames .toast{
+  position:fixed;left:50%;bottom:38px;transform:translate(-50%,14px);
+  padding:11px 20px;border-radius:999px;background:var(--ink);color:var(--paper);
+  font-size:13.5px;z-index:200;opacity:0;pointer-events:none;
+  transition:opacity .25s,transform .25s var(--ease);
+  box-shadow:0 16px 40px -18px rgba(20,24,39,.7);
+}
+#screenGames .toast.show{opacity:1;transform:translate(-50%,0)}
+/* 彩屑 */
+#screenGames .confetti{
+  position:absolute;top:-14px;width:7px;height:11px;border-radius:1px;
+  pointer-events:none;animation:fall linear forwards;z-index:5;
+}
+@keyframes fall{
+  0%{transform:translate3d(0,0,0) rotate(0deg);opacity:1}
+  100%{transform:translate3d(var(--dx),95vh,0) rotate(var(--rot));opacity:0}
+}
+@keyframes shake{
+  0%,100%{transform:translateX(0)}
+  20%{transform:translateX(-7px)}
+  40%{transform:translateX(6px)}
+  60%{transform:translateX(-4px)}
+  80%{transform:translateX(3px)}
+}
+#screenGames .shake{animation:shake .38s ease-in-out}
+@keyframes pop{0%{transform:scale(.86);opacity:.4}60%{transform:scale(1.06)}100%{transform:scale(1);opacity:1}}
+@keyframes chipIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+/* 入场 reveal：默认可见，进入视口时播放动画 */
+@keyframes riseIn{from{opacity:0;transform:translateY(22px)}to{opacity:1;transform:none}}
+@keyframes rowIn{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+#screenGames .reveal.in{animation:riseIn .8s var(--ease) both}
+/* 两真一假 */
+#screenGames .tf-rows{display:grid;gap:10px}
+#screenGames .tf-row{display:flex;align-items:center;gap:12px}
+#screenGames .tf-letter{
+  flex:none;width:28px;height:28px;border-radius:7px;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--ink);color:var(--paper);
+  font-family:var(--serif);font-size:13px;font-style:italic;font-weight:700;
+}
+#screenGames .tf-row .ipt{flex:1}
+#screenGames .tf-lie{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+#screenGames .tf-lie>span{flex:none;font-size:12.5px;color:var(--muted)}
+#screenGames .tf-lie-seg{flex:none;width:264px;min-width:0}
+#screenGames .tf-lie-seg button{flex:1;min-width:0;background:rgba(255,255,255,.55);color:var(--ink-soft)}
+#screenGames .tf-lie-seg button[aria-pressed="true"]{background:var(--ink);color:var(--paper);box-shadow:none}
+#screenGames .tf-player{font-size:13px;letter-spacing:.04em;color:var(--muted)}
+#screenGames .tf-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+#screenGames .tf-card{
+  display:flex;flex-direction:column;gap:12px;min-height:168px;
+  padding:16px;border:1px solid var(--line);border-radius:12px;background:#FFFCF6;
+  transition:background .3s,border-color .3s;
+}
+#screenGames .tf-card-letter{font-family:var(--serif);font-style:italic;font-size:13px;color:var(--muted)}
+#screenGames .tf-card-text{flex:1;font-size:15px;line-height:1.7;color:var(--ink-soft);word-break:break-word}
+#screenGames .tf-card-foot{display:flex;align-items:center;justify-content:space-between;gap:8px}
+#screenGames .tf-vote-count{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+#screenGames .tf-card.lie{border-color:rgba(196,61,61,.45);background:var(--bad-soft)}
+#screenGames .tf-card.true{border-color:rgba(15,122,87,.35);background:var(--ok-soft)}
+#screenGames .tf-card.lie .tf-card-text{color:var(--ink);font-weight:600}
+#screenGames .tf-card .btn:disabled{opacity:.4}
+/* 热座 */
+#screenGames .hot-box{
+  position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;
+  min-height:230px;padding:32px 24px;border-radius:18px;
+  background:var(--ink);color:var(--paper);text-align:center;overflow:hidden;
+}
+#screenGames .hot-word{
+  font-size:clamp(44px,7vw,84px);font-weight:800;line-height:1.08;letter-spacing:.06em;
+  word-break:break-word;
+}
+#screenGames .hot-word.hit{animation:hotHit .38s var(--ease)}
+@keyframes hotHit{0%{transform:scale(1)}40%{transform:scale(.97);color:#F0C14B}100%{transform:scale(1)}}
+#screenGames .hot-box .big-sub{color:rgba(251,243,231,.55);font-size:13px}
+#screenGames #hsCats{flex-wrap:nowrap}
+#screenGames #hsCats button{min-width:0;flex:1;padding:9px 5px;font-size:12.5px;letter-spacing:0}
+/* ============================================================
+   响应式
+   ============================================================ */
+@media (max-width:1080px){
+#screenGames .sheet-grid{grid-template-columns:minmax(260px,300px) 1fr}
+#screenGames .sheet-rules{padding:24px}
+#screenGames .sheet-stage{padding:24px}
+}
+@media (max-width:820px){
+#screenGames .sheet{padding:0}
+#screenGames .sheet-panel{height:100svh;width:100%;border-radius:0}
+#screenGames .sheet-head{padding:16px 20px}
+#screenGames .sheet-head h2{font-size:20px}
+#screenGames .sheet-grid{grid-template-columns:1fr;overflow:auto}
+#screenGames .sheet-rules{order:2;border-right:none;border-top:1px solid var(--line);overflow:visible;padding:22px 20px 40px}
+#screenGames .sheet-stage{order:1;overflow:visible;padding:20px}
+#screenGames .split{grid-template-columns:1fr}
+#screenGames .tray{grid-template-columns:repeat(3,1fr)}
+#screenGames .reels{grid-template-columns:1fr 1fr}
+#screenGames .quiz3{grid-template-columns:1fr 1fr 1fr}
+}
+@media (max-width:520px){
+#screenGames .tier{grid-row:2}
+#screenGames .btn-lg{padding:14px 22px;font-size:15px}
+#screenGames .stage-top{gap:8px}
+#screenGames .hud{padding:7px 10px}
+}
+@media (prefers-reduced-motion:reduce){
+#screenGames *,#screenGames *::before,#screenGames *::after{animation-duration:.001ms!important;animation-delay:0ms!important;transition-duration:.001ms!important}
+#screenGames .reveal{opacity:1;transform:none}
+}
+@media (max-width:680px){
+#screenGames .tf-cards{grid-template-columns:1fr}
+#screenGames .tf-card{min-height:auto}
+#screenGames .tf-lie-seg{flex:1 1 100%;width:100%}
+#screenGames .hot-box{min-height:200px;padding:26px 18px}
+#screenGames .hot-word{font-size:clamp(38px,12vw,56px)}
+}
+
+/* ============================ 深色主题适配 ============================ */
+/* 旧项目是浅色纸张底，深色主题下纸张令牌要反过来 */
+html[data-theme="gold"] #screenGames,
+html[data-theme="blue"] #screenGames {
+  --bad-soft: rgba(220, 38, 38, .16);
+  --shadow: 0 24px 60px rgba(0, 0, 0, .5);
+}
+
+html[data-theme="gold"] #screenGames .projection,
+html[data-theme="blue"] #screenGames .projection {
+  background: var(--bg-1);
+  color: var(--text);
+}
+
+html[data-theme="gold"] #screenGames .sheet-panel,
+html[data-theme="blue"] #screenGames .sheet-panel {
+  background: var(--bg-1);
+  color: var(--text);
+}

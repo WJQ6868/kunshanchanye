@@ -1,0 +1,950 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="white">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>昆山产业学院教学辅助网页</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/games.css">
+</head>
+<body>
+
+<!-- ==================== 登录页 ==================== -->
+<!-- 未登录时显示；登录成功后 JS 给 #app 加 .ready，登录页淡出移除 -->
+<section class="login-screen" id="loginScreen" aria-label="登录">
+
+  <div class="login-card">
+
+    <!-- 左侧品牌区 -->
+    <aside class="login-brand">
+      <div class="login-brand-top">
+        <img class="brand-logo brand-logo-light" src="assets/brand/luxshare-logo-white.png" alt="立讯精密">
+        <span class="login-brand-name">昆山产业学院教学辅助网页</span>
+      </div>
+
+      <div class="login-brand-mid">
+        <h2>班级加分与随机点名</h2>
+        <p>导入名单、课堂加减分、排行榜与数据导出，一个页面完成。</p>
+        <ul class="login-points">
+          <li><i>✓</i>三种点名动画：聚光灯 / 滚屏 / 转盘</li>
+          <li><i>✓</i>加分记录带原因、时间与操作人</li>
+          <li><i>✓</i>班级榜与学生榜，支持周榜月榜</li>
+        </ul>
+      </div>
+
+      <div class="login-brand-foot">
+        <span id="loginModeTag">本机模式</span>
+      </div>
+    </aside>
+
+    <!-- 右侧表单区 -->
+    <div class="login-form">
+
+      <!-- 登录 -->
+      <div class="login-pane" id="loginPane">
+        <h3>登录</h3>
+        <p class="login-sub" id="loginSub">请选择一种方式进入</p>
+
+        <!-- 三种登录方式并列 -->
+        <div class="login-methods" id="loginMethods" role="tablist">
+          <button type="button" class="login-method active" data-method="pwd" role="tab" aria-selected="true">
+            <i>🔑</i><span>账号密码</span>
+          </button>
+          <button type="button" class="login-method" data-method="sso" role="tab" aria-selected="false">
+            <i>🏫</i><span>教务一键登录</span>
+          </button>
+          <button type="button" class="login-method" data-method="guest" role="tab" aria-selected="false">
+            <i>👁</i><span>访客登录</span>
+          </button>
+        </div>
+
+        <!-- 方式一：账号密码 -->
+        <div class="login-body" id="bodyPwd">
+          <form id="loginForm" autocomplete="on">
+            <label class="field">
+              <span class="field-label">账号</span>
+              <input type="text" id="loginUser" class="input-lg" placeholder="请输入账号"
+                     autocomplete="username" autocapitalize="off" spellcheck="false" required>
+            </label>
+
+            <label class="field">
+              <span class="field-label">密码</span>
+              <div class="pw-wrap">
+                <input type="password" id="loginPass" class="input-lg" placeholder="请输入密码"
+                       autocomplete="current-password" required>
+                <button type="button" class="pw-eye" id="btnEye" title="显示密码" tabindex="-1">👁</button>
+              </div>
+            </label>
+
+            <label class="remember-row" for="chkRemember">
+              <input type="checkbox" id="chkRemember" checked>
+              <span class="remember-box" aria-hidden="true"></span>
+              <span class="remember-text">记住账号密码</span>
+              <span class="remember-hint">下次打开自动填充</span>
+            </label>
+
+            <p class="login-err hidden" id="loginErr"></p>
+
+            <button type="submit" class="btn btn-primary btn-block login-submit" id="btnLogin">登录</button>
+          </form>
+        </div>
+
+        <!-- 方式二：教务系统一键登录 -->
+        <div class="login-body hidden" id="bodySso">
+          <p class="login-tip">使用教务系统的账号直接进入，无需再记一套密码。首次登录会自动建立本系统的账号。</p>
+          <p class="login-err hidden" id="ssoErr"></p>
+          <button type="button" class="btn btn-primary btn-block login-submit" id="btnSso">前往教务系统登录</button>
+          <p class="login-note" id="ssoNote">教务系统对接在后续阶段接入，当前可先用账号密码登录。</p>
+        </div>
+
+        <!-- 方式三：访客登录 -->
+        <div class="login-body hidden" id="bodyGuest">
+          <p class="login-tip">以访客身份进入：<b>只能看</b>——班级列表、总分、前三名、排行榜。不能点名、不能点开学生、不能加减分或做任何修改。适合教室大屏和公开课。</p>
+          <p class="login-err hidden" id="guestErr"></p>
+          <button type="button" class="btn btn-primary btn-block login-submit" id="btnGuest">以访客身份进入</button>
+          <p class="login-note">访客会话只读，退出后不留痕。</p>
+        </div>
+      </div>
+
+      <!-- 首次登录强制改密（管理员用临时密码登录后） -->
+      <div class="login-pane hidden" id="forcePane">
+        <h3>修改密码</h3>
+        <p class="login-sub">首次登录需要设置自己的密码</p>
+
+        <form id="forceForm" autocomplete="off">
+          <label class="field">
+            <span class="field-label">新密码</span>
+            <input type="password" id="forcePass" class="input-lg" placeholder="至少 6 位" required>
+          </label>
+          <label class="field">
+            <span class="field-label">再输一次</span>
+            <input type="password" id="forcePass2" class="input-lg" placeholder="再输一次" required>
+          </label>
+          <p class="pw-meter hidden" id="forceMeter"><span></span></p>
+          <p class="login-err hidden" id="forceErr"></p>
+          <button type="submit" class="btn btn-primary btn-block login-submit" id="btnForce">保存并进入</button>
+        </form>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<div class="app" id="app" hidden>
+
+  <!-- 访客等只读角色的顶部说明条 -->
+  <div class="role-banner hidden" id="roleBanner"></div>
+
+  <!-- ==================== 首页：班级列表 ==================== -->
+  <section class="screen" id="screenHome">
+
+    <header class="topbar">
+      <div class="brand">
+        <img class="brand-logo" src="assets/brand/luxshare-logo.png" alt="立讯精密">
+        <div class="brand-text">
+          <h1>昆山产业学院教学辅助网页</h1>
+          <p id="homeSummary">还没有班级</p>
+        </div>
+      </div>
+
+      <div class="topbar-actions">
+        <button class="btn btn-primary" id="btnNewClass">＋ 新建班级</button>
+        <button class="btn btn-ghost" id="btnGamesHome">🎮 小游戏</button>
+        <button class="btn btn-ghost" id="btnEduSync" title="从教务系统读取班级与师生名单">🔄 读取教务名单</button>
+        <button class="btn btn-ghost" id="btnImportHome">导入名单</button>
+        <button class="icon-btn" id="btnThemeHome" title="切换主题">◐</button>
+        <button class="icon-btn" id="btnSettingsHome" title="设置">⚙</button>
+        <button class="user-chip" id="userChipHome" title="账号与权限">
+          <span class="user-avatar" id="userAvatarHome"><img class="avatar-niu" src="assets/brand/niu-avatar.png" alt=""></span>
+          <span class="user-name" id="userNameHome">管理员</span>
+        </button>
+      </div>
+    </header>
+
+    <div class="home-body">
+
+      <!-- 标签切换：排行榜 / 所有班级，同一行 -->
+      <div class="home-tabs">
+        <div class="tab-group" id="homeTabs" role="tablist">
+          <button class="tab-btn active" data-tab="rank" role="tab" aria-selected="true">🏆 排行榜</button>
+          <button class="tab-btn" data-tab="classes" role="tab" aria-selected="false">所有班级</button>
+        </div>
+        <span class="hint" id="homeCount"></span>
+        <span class="spacer"></span>
+        <span class="tab-tools" id="classesTools">
+          <input type="search" id="homeSearch" class="input-mini home-search" placeholder="搜索班级…" autocomplete="off">
+          <button class="btn btn-ghost btn-mini" id="btnExportAllClasses">导出全部班级分数表</button>
+        </span>
+      </div>
+
+      <!-- ========== 排行榜界面 ========== -->
+      <div class="home-pane" id="paneRank">
+
+        <div class="rank-scroll">
+
+          <!-- 学生榜 -->
+          <section class="rank-block">
+            <div class="rb-head">
+              <div class="rb-title">
+                <h3 id="stuTitle">本周之星</h3>
+                <span class="hint" id="stuHint"></span>
+              </div>
+              <span class="spacer"></span>
+              <div class="pill-group" id="stuPeriod">
+                <button class="pill active" data-period="week">本周榜</button>
+                <button class="pill" data-period="all">总榜</button>
+                <button class="pill" data-period="custom">自定义</button>
+              </div>
+              <button class="btn btn-ghost btn-mini" id="btnRankExport">⤓ 导出</button>
+            </div>
+            <!-- 自定义期限：只在选「自定义」时展开 -->
+            <div class="rank-range hidden" id="stuRange">
+              <span class="range-label">统计期限</span>
+              <input type="date" class="input-mini input-date" id="stuFrom" aria-label="学生榜开始日期">
+              <span class="range-sep">~</span>
+              <input type="date" class="input-mini input-date" id="stuTo" aria-label="学生榜结束日期">
+              <button class="btn btn-ghost btn-mini" data-range-preset="7" data-range-board="stu">近 7 天</button>
+              <button class="btn btn-ghost btn-mini" data-range-preset="30" data-range-board="stu">近 30 天</button>
+              <button class="btn btn-ghost btn-mini" data-range-clear="stu">清除</button>
+            </div>
+            <div class="podium" id="stuPodium"></div>
+            <div class="rank-list rank-list-flat" id="stuList"></div>
+          </section>
+
+          <!-- 班级榜 -->
+          <section class="rank-block">
+            <div class="rb-head">
+              <div class="rb-title">
+                <h3>班级总分排名</h3>
+                <span class="hint" id="clsHint"></span>
+              </div>
+              <span class="spacer"></span>
+              <div class="pill-group" id="clsPeriod">
+                <button class="pill" data-period="week">周排名</button>
+                <button class="pill" data-period="month">月排名</button>
+                <button class="pill active" data-period="all">总排名</button>
+                <button class="pill" data-period="custom">自定义</button>
+              </div>
+              <button class="btn btn-ghost btn-mini" id="btnRankExportCls">⤓ 导出</button>
+            </div>
+            <div class="rank-range hidden" id="clsRange">
+              <span class="range-label">统计期限</span>
+              <input type="date" class="input-mini input-date" id="clsFrom" aria-label="班级榜开始日期">
+              <span class="range-sep">~</span>
+              <input type="date" class="input-mini input-date" id="clsTo" aria-label="班级榜结束日期">
+              <button class="btn btn-ghost btn-mini" data-range-preset="7" data-range-board="cls">近 7 天</button>
+              <button class="btn btn-ghost btn-mini" data-range-preset="30" data-range-board="cls">近 30 天</button>
+              <button class="btn btn-ghost btn-mini" data-range-clear="cls">清除</button>
+            </div>
+            <div class="podium" id="clsPodium"></div>
+            <div class="rank-list rank-list-flat" id="clsList"></div>
+          </section>
+
+          <!-- 班级平均分榜（与总分榜共享周期） -->
+          <section class="rank-block">
+            <div class="rb-head">
+              <div class="rb-title">
+                <h3>班级平均分排名</h3>
+                <span class="hint" id="avgHint"></span>
+              </div>
+              <span class="spacer"></span>
+              <button class="btn btn-ghost btn-mini" id="btnRankExportAvg">⤓ 导出</button>
+            </div>
+            <div class="podium" id="avgPodium"></div>
+            <div class="rank-list rank-list-flat" id="avgList"></div>
+          </section>
+
+        </div>
+
+      </div>
+
+      <!-- ========== 所有班级界面 ========== -->
+      <div class="home-pane hidden" id="paneClasses">
+        <div class="class-grid" id="classGrid"></div>
+
+        <div class="home-empty" id="homeEmpty">
+          <div class="empty-icon"><img class="empty-niu" src="assets/brand/niu-head.png" alt=""></div>
+          <h2>先建一个班级</h2>
+          <p>建好班级后导入名单，就可以在班级工作台里点名与加分</p>
+          <div class="empty-actions">
+            <button class="btn btn-primary" id="btnNewClass2">＋ 新建班级</button>
+            <button class="btn btn-ghost" id="btnImportHome2">导入名单</button>
+          </div>
+          <p class="empty-tip">名单里带「班级」列时，会自动拆成多个班级；也可以把整份名单指定归到一个班级</p>
+        </div>
+      </div>
+
+    </div>
+
+  </section>
+
+  <!-- ==================== 班级工作台 ==================== -->
+  <section class="screen" id="screenClass">
+
+    <header class="topbar">
+      <div class="tb-left">
+        <button class="icon-btn icon-btn-back" id="btnHome" title="返回班级列表（Esc）">←</button>
+        <div class="brand">
+          <img class="brand-logo" src="assets/brand/luxshare-logo.png" alt="立讯精密">
+          <div class="brand-text">
+            <h1 id="wbTitle">班级</h1>
+            <p id="className">未导入名单</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="topbar-actions">
+        <div class="pill-group" id="animSwitch" title="切换抽取动画">
+          <button class="pill active" data-anim="spotlight">聚光灯</button>
+          <button class="pill" data-anim="roller">滚屏</button>
+          <button class="pill" data-anim="wheel">转盘</button>
+        </div>
+        <button class="icon-btn" id="btnTheme" title="切换主题">◐</button>
+        <button class="icon-btn" id="btnSettings" title="设置">⚙</button>
+        <button class="btn btn-ghost" id="btnGamesClass">🎮 小游戏</button>
+        <button class="btn btn-ghost" id="btnImport">导入名单</button>
+        <button class="user-chip" id="userChip" title="账号与权限">
+          <span class="user-avatar" id="userAvatar"><img class="avatar-niu" src="assets/brand/niu-avatar.png" alt=""></span>
+          <span class="user-name" id="userName">管理员</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- 工作台顶部摘要：班级总分 + 本班前三名 -->
+    <div class="wb-summary" id="wbSummary">
+      <div class="wb-total">
+        <span class="wb-total-label">班级总分</span>
+        <span class="wb-total-num" id="wbTotalNum">0</span>
+      </div>
+      <div class="wb-top3-wrap">
+        <span class="wb-top3-label">本班前三</span>
+        <div class="top3" id="wbTop3"></div>
+      </div>
+      <span class="spacer"></span>
+      <button class="btn btn-ghost btn-mini" id="btnClassSheet">⤓ 导出本班分数表</button>
+    </div>
+
+    <!-- 非任教班级：只读提示条（加减分按钮置灰） -->
+    <div class="readonly-bar hidden" id="readonlyBar">
+      <span class="readonly-ico">👁</span>
+      <span class="readonly-text" id="readonlyText">只读班级：可以查看名单、总分与加分记录，但不能加减分</span>
+    </div>
+
+    <!-- 工作区：名单舞台（主视觉，左） + 加分面板（右侧操作栏） -->
+    <div class="workspace" id="workspace">
+
+      <!-- ============ 名单舞台：抽取主区域（宽） ============ -->
+      <main class="roster-col">
+
+        <div class="roster-head">
+          <div class="roster-title">
+            <b>学生名单</b>
+            <span class="hint" id="rosterMeta">点卡片在右侧面板看分数与加分</span>
+          </div>
+          <button class="draw-btn" id="btnDraw" title="随机点名（空格 / 回车）">
+            <span class="draw-btn-text">随机点名</span>
+            <span class="draw-btn-hint">空格</span>
+          </button>
+        </div>
+
+        <div class="stage" id="stage">
+
+          <!-- 空状态 -->
+          <div class="empty-state" id="emptyState">
+            <div class="empty-icon"><img class="empty-niu" src="assets/brand/niu-head.png" alt=""></div>
+            <h2>本班还没有学生</h2>
+            <p>支持 <b>xlsx / xls / csv</b>，拖进来或点下面的按钮</p>
+            <div class="empty-actions">
+              <button class="btn btn-primary" id="btnImport2">选择文件</button>
+              <button class="btn btn-ghost" id="btnManual">手动录入</button>
+            </div>
+            <p class="empty-tip">导入时可以把整份名单直接归到本班，也可以按名单里的「班级」列自动拆分</p>
+          </div>
+
+          <!-- 视图 1：聚光灯 -->
+          <section class="view" id="view-spotlight">
+            <div class="spot-glow" id="spotGlow"></div>
+            <div class="card-grid" id="cardGrid"></div>
+          </section>
+
+          <!-- 视图 2：滚屏 -->
+          <section class="view" id="view-roller">
+            <div class="roller">
+              <div class="roller-line dim" id="rollerTop"></div>
+              <div class="roller-main" id="rollerMain">
+                <span class="roller-name" id="rollerName">准备就绪</span>
+              </div>
+              <div class="roller-line dim" id="rollerBottom"></div>
+            </div>
+            <div class="roller-label" id="rollerLabel">READY</div>
+          </section>
+
+          <!-- 视图 3：转盘 -->
+          <section class="view" id="view-wheel">
+            <div class="wheel-wrap">
+              <canvas id="wheelCanvas" width="900" height="900"></canvas>
+              <div class="wheel-pointer"></div>
+              <div class="wheel-hub"><span id="wheelHubText">GO</span></div>
+            </div>
+            <canvas class="confetti" id="confettiCanvas"></canvas>
+          </section>
+
+          <!-- 结果浮层 -->
+          <div class="result-overlay" id="resultOverlay">
+            <div class="result-card">
+              <div class="result-label">本轮抽中</div>
+              <div class="result-main">
+                <div class="result-name" id="resultName">张三</div>
+                <div class="result-meta" id="resultMeta"></div>
+              </div>
+              <div class="result-score">
+                <span class="result-score-num" id="resultScore">0</span>
+                <span class="result-score-label">累计</span>
+              </div>
+              <div class="result-actions">
+                <button class="btn btn-score" id="btnResultPlus1" title="给该生加 1 分">+1 分</button>
+                <button class="btn btn-primary" id="btnResultScore" title="选中该生并聚焦加分输入">给 TA 加分</button>
+                <button class="btn btn-ghost" id="btnAgain">再抽一次</button>
+                <button class="btn btn-ghost" id="btnUndo">撤销本次</button>
+                <button class="icon-btn btn-close-result" id="btnCloseResult" title="关闭结果条">✕</button>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+      </main>
+
+      <!-- ============ 加分面板：右侧操作栏（窄） ============ -->
+      <aside class="score-panel" id="scorePanel" aria-label="加分面板">
+        <div class="panel-head">
+          <div class="panel-title">
+            <h2>加分</h2>
+            <p id="panelClassLabel">未分班</p>
+          </div>
+          <div class="panel-total">
+            <span class="panel-total-num" id="panelTotalNum">0</span>
+            <span class="panel-total-label">班级总分</span>
+          </div>
+        </div>
+
+        <div class="panel-body">
+
+          <!-- 当前学生：点左侧卡片即在此显示，不弹窗 -->
+          <section class="panel-block focus-card is-empty" id="focusCard">
+            <div class="focus-head">
+              <div class="focus-name" id="focusName">未选学生</div>
+              <div class="focus-scores">
+                <div class="focus-score">
+                  <span class="focus-num" id="focusTotal">0</span>
+                  <span class="focus-label">总分</span>
+                </div>
+                <div class="focus-score">
+                  <span class="focus-num" id="focusToday">0</span>
+                  <span class="focus-label">今日</span>
+                </div>
+              </div>
+            </div>
+            <div class="focus-meta" id="focusMeta">点左侧名单里的卡片查看分数</div>
+            <div class="focus-tools">
+              <button class="pill pill-mini" id="btnFocusPick">加入选中</button>
+              <button class="pill pill-mini" id="btnFocusClear">清空记录</button>
+              <button class="pill pill-mini" id="btnFocusClose">取消</button>
+            </div>
+          </section>
+
+          <!-- 加分对象（多选）：与「当前学生」互斥，点卡片=查看，勾选模式=批量 -->
+          <section class="panel-block sel-block">
+            <div class="panel-block-head">
+              <b>加分对象</b>
+              <span class="panel-count" id="panelSelCount">未选择</span>
+            </div>
+            <div class="sel-bar">
+              <button class="pill pill-mini" id="btnSelectMode" title="打开后点击名单卡片即为勾选">勾选模式</button>
+              <button class="pill pill-mini" id="btnSelectAll">全选</button>
+              <button class="pill pill-mini" id="btnClearSel">清空</button>
+            </div>
+            <div class="sel-chips" id="selChips">
+              <span class="sel-empty">未选择 · 打开「勾选模式」后可批量勾选</span>
+            </div>
+          </section>
+
+          <!-- 快捷加分 -->
+          <section class="panel-block panel-block-score">
+            <div class="panel-block-head">
+              <b>加分操作</b>
+              <span class="panel-count" id="panelSum">合计 0 分</span>
+            </div>
+
+            <!-- 顺序：先选原因（备注），再点具体分值 -->
+            <div class="reason-row">
+              <select id="scoreReason" class="input-mini reason-select">
+                <option value="">选择加分原因（必选）</option>
+                <option value="答疑加分">1 · 答疑加分</option>
+                <option value="作业加分">2 · 作业加分</option>
+                <option value="课堂表现">3 · 课堂表现</option>
+                <option value="问题扣分">4 · 问题扣分</option>
+                <option value="其他">5 · 其他（需补充说明）</option>
+              </select>
+              <input type="text" id="scoreReasonOther" class="input-mini hidden" placeholder="补充说明（必填）" maxlength="40">
+            </div>
+
+            <div class="quick-row" id="quickRow">
+              <button class="score-btn minus" data-delta="-1">−1</button>
+              <button class="score-btn minus" data-delta="-2">−2</button>
+              <button class="score-btn plus" data-delta="1">+1</button>
+              <button class="score-btn plus" data-delta="2">+2</button>
+              <button class="score-btn plus" data-delta="3">+3</button>
+              <button class="score-btn plus" data-delta="5">+5</button>
+            </div>
+
+            <div class="custom-row">
+              <input type="number" id="customScore" class="input-mini" placeholder="自定义分" step="0.5" inputmode="decimal">
+            </div>
+
+            <div class="op-hint" id="applyOpHint">操作人：—</div>
+            <button class="btn btn-primary btn-block btn-apply" id="btnApplyScore" disabled>给选中学生加分</button>
+          </section>
+
+          <!-- 本班加分记录 -->
+          <section class="panel-block panel-block-grow">
+            <div class="panel-block-head">
+              <b>本班加分记录</b>
+              <span class="panel-count" id="panelRecCount">0 条</span>
+            </div>
+            <div class="score-log" id="scoreLog"></div>
+            <div class="panel-block-foot">
+              <button class="btn btn-ghost btn-mini" id="btnExportScores">导出分数详情记录表</button>
+            </div>
+          </section>
+
+        </div>
+      </aside>
+
+    </div>
+
+    <!-- ============ 底部控制条 ============ -->
+    <footer class="controlbar">
+      <div class="stats">
+        <div class="stat">
+          <span class="stat-num" id="statPicked">0</span>
+          <span class="stat-label">已抽</span>
+        </div>
+        <div class="stat-divider"></div>
+        <div class="stat">
+          <span class="stat-num" id="statLeft">0</span>
+          <span class="stat-label">剩余</span>
+        </div>
+        <div class="stat-divider"></div>
+        <div class="stat">
+          <span class="stat-num" id="statTotal">0</span>
+          <span class="stat-label">总数</span>
+        </div>
+      </div>
+
+      <div class="round-hint" id="roundHint">本轮开始</div>
+
+      <div class="right-tools">
+        <label class="switch" title="本轮抽过的人不再出现">
+          <input type="checkbox" id="modeRepeat">
+          <span class="switch-track"><span class="switch-thumb"></span></span>
+          <span class="switch-label">可重复</span>
+        </label>
+        <button class="icon-btn" id="btnUndoOp" title="撤销上一步（Ctrl+Z）" disabled>↶</button>
+        <button class="icon-btn" id="btnReset" title="重置本轮（R）">↺</button>
+        <button class="icon-btn" id="btnHistory" title="抽取记录">🕘</button>
+        <button class="icon-btn" id="btnExport" title="导出抽取记录 CSV">⤓</button>
+      </div>
+    </footer>
+
+  </section>
+
+  <!-- ==================== 课堂小游戏 ==================== -->
+  <section class="screen" id="screenGames">
+
+    <header class="topbar">
+      <div class="tb-left">
+        <button class="icon-btn icon-btn-back" id="btnGamesBack" title="返回（Esc）">←</button>
+        <div class="brand">
+          <img class="brand-logo" src="assets/brand/luxshare-logo.png" alt="立讯精密">
+          <div class="brand-text">
+            <h1>课堂小游戏</h1>
+            <p id="gamesSub">即拿即用的热场玩法 · 投影就能开</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="game-filters" id="gameFilters" role="tablist" aria-label="按场景筛选"></div>
+
+      <div class="topbar-actions">
+        <span class="hint" id="gamesCount"></span>
+      </div>
+    </header>
+
+    <div class="game-body">
+      <div class="game-grid" id="gameGrid"></div>
+    </div>
+
+    <!-- ============ 游戏面板 ============ -->
+    <div class="sheet" id="sheet" aria-hidden="true">
+      <div class="sheet-backdrop" data-close></div>
+      <div class="sheet-panel" role="dialog" aria-modal="true" aria-labelledby="sheetTitle" tabindex="-1">
+        <header class="sheet-head">
+          <div>
+            <p class="sheet-kicker" id="sheetKicker">热身局 · 01</p>
+            <h2 id="sheetTitle">游戏</h2>
+          </div>
+          <button class="sheet-close" type="button" data-close aria-label="关闭游戏">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5l14 14M19 5L5 19"/></svg>
+            <span>关闭</span>
+          </button>
+        </header>
+        <div class="sheet-grid">
+          <aside class="sheet-rules" id="sheetRules"></aside>
+          <section class="sheet-stage" id="sheetStage"></section>
+        </div>
+      </div>
+    </div>
+
+  </section>
+
+</div>
+
+<!-- ============ 导入弹窗 ============ -->
+<div class="modal" id="importModal">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3 id="importTitle">导入名单</h3>
+      <button class="icon-btn" data-close>✕</button>
+    </div>
+
+    <!-- 第一步：选择 -->
+    <div class="modal-body" id="importPick">
+      <div class="dropzone" id="dropzone">
+        <div class="dz-icon">⬆</div>
+        <p><b>点击选择</b> 或把文件拖到这里</p>
+        <p class="muted">xlsx / xls / csv</p>
+        <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" hidden>
+      </div>
+      <div class="or-line"><span>或</span></div>
+      <textarea id="manualInput" rows="6" placeholder="手动录入，每行一个：&#10;张三,2024001,一班&#10;李四,2024002,一班"></textarea>
+      <div class="modal-foot">
+        <span class="hint" id="manualHint">格式：姓名 或 姓名,学号 或 姓名,学号,班级</span>
+        <button class="btn btn-primary" id="btnManualOk">确认录入</button>
+      </div>
+    </div>
+
+    <!-- 第二步：预览 + 归属 -->
+    <div class="modal-body hidden" id="importPreview">
+      <div class="preview-bar">
+        <span id="previewSummary">共 0 人</span>
+        <span class="hint" id="previewDetect"></span>
+      </div>
+
+      <div class="assign-row">
+        <span class="assign-label">导入到</span>
+        <select id="importAssign" class="assign-select" aria-label="导入到哪个班级">
+          <option value="__auto">按「班级」列自动拆分</option>
+          <option value="__blank">未分班</option>
+          <option value="__new">新建班级…</option>
+        </select>
+        <input type="text" id="importNewName" class="input-mini assign-new hidden" placeholder="新班级名" maxlength="20" autocomplete="off">
+      </div>
+      <p class="hint assign-tip" id="importAssignTip">同一份名单也可以整份归到一个班级；导入会替换该班原有名单，其他班级不受影响。</p>
+
+      <div class="preview-list" id="previewList"></div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" id="btnBackPick">返回</button>
+        <span class="spacer"></span>
+        <button class="btn btn-primary" id="btnConfirmImport">确认导入</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 新建 / 重命名班级弹窗 ============ -->
+<div class="modal" id="nameModal">
+  <div class="modal-box modal-sm">
+    <div class="modal-head">
+      <h3 id="nameModalTitle">新建班级</h3>
+      <button class="icon-btn" data-close>✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="text" id="nameInput" class="input-lg" placeholder="例如：一班 / 2024级计算机1班" maxlength="20" autocomplete="off">
+      <p class="hint" id="nameHint">最多 20 个字，班级名不可重复</p>
+    </div>
+    <div class="modal-foot">
+      <span class="spacer"></span>
+      <button class="btn btn-ghost" data-close>取消</button>
+      <button class="btn btn-primary" id="btnNameOk">确定</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ============ 抽取记录弹窗 ============ -->
+<div class="modal" id="historyModal">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3>抽取记录</h3>
+      <button class="icon-btn" data-close>✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="preview-list" id="historyList"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" id="btnClearHistory">清空记录</button>
+      <span class="spacer"></span>
+      <button class="btn btn-primary" id="btnExport2">导出 CSV</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 加分记录导出弹窗 ============ -->
+<div class="modal" id="exportModal">
+  <div class="modal-box modal-sm">
+    <div class="modal-head">
+      <h3>导出学生分数表</h3>
+      <button class="icon-btn" data-close>✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="muted">生成 Excel 表格（.xlsx），一行一个学生：姓名、学号、班级、加分次数、总分。没加过分的学生也会出现在表里，记 0 分。表头已冻结、带边框，可直接打印。文件名形如「一班_学生分数表_2026-11-19.xlsx」；全部导出时每个班一个工作表（sheet），只下载一个文件。</p>
+      <div class="preview-list" id="exportList"></div>
+    </div>
+    <div class="modal-foot">
+      <span class="hint" id="exportHint"></span>
+      <span class="spacer"></span>
+      <button class="btn btn-primary" id="btnExportAll">全部导出</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 教务名单读取弹窗 ============ -->
+<div class="modal" id="eduModal">
+  <div class="modal-box modal-lg">
+    <div class="modal-head">
+      <h3>读取教务名单</h3>
+      <button class="icon-btn" id="btnEduClose">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="edu-lead">从教务系统拉取班级、学生与任课教师名单，直接写进本系统。</p>
+
+      <div class="edu-status-row">
+        <span class="edu-label">对接状态</span>
+        <span class="edu-state is-off" id="eduState">读取中…</span>
+        <span class="spinner hidden" id="eduSpinner"></span>
+      </div>
+
+      <div class="edu-detail" id="eduDetail"></div>
+
+      <div class="edu-err login-err hidden" id="eduErr"></div>
+
+      <div class="edu-note">
+        <b>同步规则</b>
+        <ul>
+          <li>学生按「学号 → 身份证摘要 → 同班同名」三步匹配，匹配上就更新，匹配不上就新建。</li>
+          <li>教师按工号匹配，<b>已存在的账号只补姓名与工号，不覆盖密码和权限</b>——你在系统里调过的权限不会被同步冲掉。</li>
+          <li>教务里已不存在的班级不会被删除，只会停止更新，避免误删历史加分记录。</li>
+        </ul>
+      </div>
+
+      <div class="edu-runs-wrap">
+        <div class="edu-runs-title">最近同步记录</div>
+        <div class="edu-runs" id="eduRuns"></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <span class="hint">读取过程不会影响已有的加分记录</span>
+      <span class="spacer"></span>
+      <button class="btn btn-ghost" id="btnEduCancel" onclick="RCEduUI.close()">关闭</button>
+      <button class="btn btn-primary" id="btnEduRun">开始读取</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 设置弹窗 ============ -->
+<div class="modal" id="settingsModal">
+  <div class="modal-box modal-sm">
+    <div class="modal-head">
+      <h3>设置</h3>
+      <button class="icon-btn" data-close>✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="setting-row">
+        <div>
+          <b>快速模式</b>
+          <p class="muted">动画缩短到约 1 秒</p>
+        </div>
+        <label class="switch"><input type="checkbox" id="optFast"><span class="switch-track"><span class="switch-thumb"></span></span></label>
+      </div>
+      <div class="setting-row">
+        <div>
+          <b>音效</b>
+          <p class="muted">滚动咔哒声与中奖提示音</p>
+        </div>
+        <label class="switch"><input type="checkbox" id="optSound" checked><span class="switch-track"><span class="switch-thumb"></span></span></label>
+      </div>
+      <div class="setting-row">
+        <div>
+          <b>抽中后自动关闭</b>
+          <p class="muted">结果卡停留 2 秒自动消失</p>
+        </div>
+        <label class="switch"><input type="checkbox" id="optAutoClose"><span class="switch-track"><span class="switch-thumb"></span></span></label>
+      </div>
+      <div class="setting-row">
+        <div>
+          <b>主题</b>
+          <p class="muted">课堂投影用暗色，汇报展示用白色</p>
+        </div>
+        <div class="pill-group" id="themeSwitch">
+          <button class="pill active" data-theme="gold">暗夜金</button>
+          <button class="pill" data-theme="blue">学院蓝</button>
+          <button class="pill" data-theme="white">白色</button>
+        </div>
+      </div>
+      <div class="setting-row">
+        <div>
+          <b>清空数据</b>
+          <p class="muted">删除本机保存的名单、抽取记录与全部班级加分记录</p>
+        </div>
+        <button class="btn btn-danger" id="btnWipe">清空</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Toast ============ -->
+<div class="user-menu hidden" id="userMenu">
+  <div class="user-menu-head">
+    <span class="user-menu-avatar"><img class="avatar-niu" src="assets/brand/niu-avatar.png" alt=""></span>
+    <b id="userMenuName">管理员</b>
+    <span class="user-role-tag" id="userMenuRole">管理员</span>
+  </div>
+  <p class="user-menu-sub" id="userMenuScope">可管理全部班级</p>
+  <button class="user-menu-item" id="userMenuPwd">修改密码</button>
+  <button class="user-menu-item" id="userMenuUsers">人员管理</button>
+  <div class="user-menu-sep"></div>
+  <button class="user-menu-item danger" id="userMenuOut">退出登录</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- 整页拖拽文件的提示层 -->
+<!-- ============ 人员管理弹窗（管理员） ============ -->
+<div class="modal" id="usersModal">
+  <div class="modal-box modal-lg">
+    <div class="modal-head">
+      <h3>人员管理</h3>
+      <button class="icon-btn" data-close>✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="users-toolbar">
+        <span class="hint" id="usersHint"></span>
+        <span class="spacer"></span>
+        <button class="btn btn-primary btn-mini" id="btnUserAdd">＋ 新增用户</button>
+      </div>
+      <div class="user-list" id="userList"></div>
+
+      <div class="user-form hidden" id="userForm">
+        <div class="uf-head"><b id="userFormTitle">新增用户</b></div>
+        <div class="uf-grid">
+          <label class="field"><span class="field-label">登录名</span>
+            <input id="ufLogin" class="input-mini" maxlength="24" autocomplete="off" placeholder="3–24 位字母数字"></label>
+          <label class="field"><span class="field-label">姓名</span>
+            <input id="ufName" class="input-mini" maxlength="20" autocomplete="off" placeholder="显示名"></label>
+          <label class="field"><span class="field-label">角色</span>
+            <select id="ufRole" class="input-mini">
+              <option value="teacher">讲师</option>
+              <option value="viewer">访客</option>
+              <option value="admin">管理员</option>
+            </select></label>
+          <label class="field"><span class="field-label">工号（可选）</span>
+            <input id="ufEmp" class="input-mini" maxlength="24" autocomplete="off" placeholder="对接教务用"></label>
+          <label class="field" id="ufPwField"><span class="field-label">初始密码（留空 = 123456）</span>
+            <input id="ufPw" type="password" class="input-mini" autocomplete="new-password" placeholder="留空 = 123456"></label>
+        </div>
+
+        <div class="uf-block">
+          <span class="field-label">任教班级（全选 = 全部班级）</span>
+          <div class="uf-scopes" id="ufScopes"></div>
+        </div>
+
+        <details class="uf-perms-wrap" id="ufPermsWrap">
+          <summary>单独调整权限（不勾 = 用角色默认）</summary>
+          <div class="uf-perms" id="ufPerms"></div>
+        </details>
+
+        <p class="login-err hidden" id="ufErr"></p>
+        <div class="uf-actions">
+          <button class="btn btn-ghost btn-mini" id="btnUserCancel">取消</button>
+          <button class="btn btn-primary btn-mini" id="btnUserSave">保存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 修改密码弹窗 ============ -->
+<div class="modal" id="pwdModal">
+  <div class="modal-box modal-sm">
+    <div class="modal-head">
+      <h3>修改密码</h3>
+      <button class="icon-btn" data-close>✕</button>
+    </div>
+    <div class="modal-body">
+      <label class="field"><span class="field-label">当前密码</span>
+        <input id="pwdOld" type="password" class="input-lg" autocomplete="current-password"></label>
+      <label class="field"><span class="field-label">新密码</span>
+        <input id="pwdNew" type="password" class="input-lg" autocomplete="new-password" placeholder="至少 6 位"></label>
+      <p class="pw-meter hidden" id="pwdMeter"><span></span></p>
+      <label class="field"><span class="field-label">确认新密码</span>
+        <input id="pwdNew2" type="password" class="input-lg" autocomplete="new-password"></label>
+      <p class="login-err hidden" id="pwdErr"></p>
+    </div>
+    <div class="modal-foot">
+      <span class="hint">密码经 PBKDF2 派生后保存，不存明文</span>
+      <span class="spacer"></span>
+      <button class="btn btn-ghost" data-close>取消</button>
+      <button class="btn btn-primary" id="btnPwdSave">保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="drop-overlay" id="dropOverlay">
+  <div class="drop-overlay-box">
+    <div class="drop-overlay-icon">📥</div>
+    <p>松开鼠标导入名单</p>
+    <span>支持 xlsx / xls / csv</span>
+  </div>
+</div>
+
+<script src="vendor/xlsx.full.min.js"></script>
+<script src="js/storage.js"></script>
+<script src="js/data/adapter-interface.js"></script>
+<script src="js/data/adapter-local.js"></script>
+<script src="js/data/adapter-remote.js"></script>
+<script src="js/data/adapter-factory.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/importer.js"></script>
+<script src="js/picker.js"></script>
+<script src="js/scores.js"></script>
+<script src="js/classes.js"></script>
+<script src="js/xlsx-writer.js"></script>
+<script src="js/export-sheet.js"></script>
+<script src="js/anim-spotlight.js"></script>
+<script src="js/anim-roller.js"></script>
+<script src="js/anim-wheel.js"></script>
+<script src="js/auth/crypto.js"></script>
+<script src="js/auth/perm.js"></script>
+<script src="js/auth/auth-store.js"></script>
+<script src="js/auth/session.js"></script>
+<script src="js/auth/login.js"></script>
+<script src="js/auth/user-ui.js"></script>
+<script src="js/edu-ui.js"></script>
+<script src="js/games/games-data.js"></script>
+<script src="js/games/games-app.js"></script>
+<script src="js/games/renderers.js"></script>
+<script src="js/games/voice.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

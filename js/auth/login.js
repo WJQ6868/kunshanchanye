@@ -307,6 +307,14 @@
 
       /* 远程模式：改密必须带原密码，用刚才登录时输入的那个 */
       if (global.RCSession.isRemote()) {
+        /* 原密码只在「本次登录时手输过」才拿得到。若是刷新页面后被会话恢复到
+           改密页（lastPw 为空），服务端会以「原密码不正确」拒绝 —— 与其让人
+           在这里白撞，不如明确要求重新登录一次。 */
+        if (!lastPw) {
+          showErr(els.forceErr, '为验证身份，请退出后重新登录再修改密码');
+          busy(els.btnForce, false);
+          return;
+        }
         global.RCSession.changePassword(lastPw, p1).then(function (r) {
           busy(els.btnForce, false);
           if (!r.ok) { showErr(els.forceErr, r.msg); return; }

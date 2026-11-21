@@ -459,6 +459,67 @@
       });
     }
 
+    /* ---------- 人员管理（P4） ----------
+       服务端 /users 系列接口。返回值统一成 {ok, data|msg}，
+       让上层的 RCUserStore 在本地/远程两种模式下有同一套调用形状。
+       403 单独翻译成人话：说明是权限不足，而不是「网络错误」。 */
+
+    function listUsers() {
+      return request('GET', '/users').then(function (r) {
+        return { ok: true, list: Array.isArray(r) ? r : [] };
+      }).catch(function (e) {
+        if (e && e.status === 403) return { ok: false, msg: '当前账号没有人员管理权限' };
+        if (e && e.status === 401) return { ok: false, msg: '登录已过期，请重新登录' };
+        return { ok: false, msg: '读取账号列表失败：' + ((e && e.message) || e) };
+      });
+    }
+
+    function createUser(input) {
+      return request('POST', '/users', input).then(function (r) {
+        return { ok: true, user: r };
+      }).catch(function (e) {
+        if (e && e.status === 403) return { ok: false, msg: '当前账号没有新增人员的权限' };
+        return { ok: false, msg: pickMsg(e, '新增失败') };
+      });
+    }
+
+    function updateUser(id, patch) {
+      return request('PATCH', '/users/' + encodeURIComponent(id), patch).then(function (r) {
+        return { ok: true, user: r };
+      }).catch(function (e) {
+        if (e && e.status === 403) return { ok: false, msg: '当前账号没有修改人员的权限' };
+        return { ok: false, msg: pickMsg(e, '保存失败') };
+      });
+    }
+
+    function removeUser(id) {
+      return request('DELETE', '/users/' + encodeURIComponent(id)).then(function () {
+        return { ok: true };
+      }).catch(function (e) {
+        if (e && e.status === 403) return { ok: false, msg: '当前账号没有删除人员的权限' };
+        return { ok: false, msg: pickMsg(e, '删除失败') };
+      });
+    }
+
+    function resetUserPassword(id, newPassword) {
+      var body = newPassword ? { newPassword: newPassword } : {};
+      return request('POST', '/users/' + encodeURIComponent(id) + '/password', body).then(function () {
+        return { ok: true };
+      }).catch(function (e) {
+        if (e && e.status === 403) return { ok: false, msg: '当前账号没有重置密码的权限' };
+        return { ok: false, msg: pickMsg(e, '重置失败') };
+      });
+    }
+
+    /** 服务端把错误原因放在 message 字段里，取出比整段 HTTP 文本好用 */
+    function pickMsg(e, fallback) {
+      var raw = (e && e.message) || '';
+      var m = /"message"\s*:\s*"([^"]+)"/.exec(raw);
+      if (m) return m[1];
+      if (e && e.status === 401) return '登录已过期，请重新登录';
+      return fallback + '：' + raw;
+    }
+
     /* ---------- 生命周期 ---------- */
 
     /**
@@ -581,7 +642,13 @@
       refreshMe: refreshMe,
       reload: reload,
       eduStatus: eduStatus,
-      eduSync: eduSync
+      eduSync: eduSync,
+      /* 人员管理（P4） */
+      listUsers: listUsers,
+      createUser: createUser,
+      updateUser: updateUser,
+      removeUser: removeUser,
+      resetUserPassword: resetUserPassword
     };
   }
 

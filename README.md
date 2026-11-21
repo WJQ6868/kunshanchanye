@@ -473,6 +473,14 @@
 
 **至少保留一个启用的管理员**——把最后一个管理员降级或停用会被拒绝。
 
+**两种模式行为一致**：本机模式下账号存在浏览器 `localStorage`（`rollcall.users.v1`），服务器模式下存在服务端 `app_user` 表。界面层只认一个统一入口 `js/auth/user-store.js`，它在 `RCSession.isRemote()` 为真时转发到 `/api/v1/users*`，否则调本地的 `RCAuthStore`；密码由调用方始终以明文传入，本机模式在浏览器里 PBKDF2 派生后存哈希，服务器模式直接发给服务端由 scrypt 派生，两边都不落明文。
+
+服务器模式比本机模式多几条硬约束（因为是多用户共享一个库）：
+
+- 改角色 / 改权限 / 改班级范围 / 停用 / 重置密码 → **吊销该账号全部会话**，旧标签页立刻失效，不能拿着旧权限继续跑。
+- 内置最高管理员 `wjqcool` 可以改资料、改密码，但**不能降级、停用或删除**（`seed.ts` 每次启动会补建它，允许删除就会变成「重启后又冒出一个密码未知的管理员」）。
+- 任何字段变更都写 `audit_log`，`before` / `after` 各留一份。
+
 ---
 
 ## 服务端（P1 第 4 项）
@@ -509,6 +517,17 @@ node src/index.ts         # Node 24 直接跑 TS，无需编译
 ### 接口一览
 
 **基座**：`/healthz`、`/readyz`（同时支持根路径与 `/api/v1` 前缀）、`POST /api/v1/auth/login`、`POST /api/v1/auth/logout`、`POST /api/v1/auth/guest`、`POST /api/v1/auth/refresh`、`POST /api/v1/auth/password`、`GET /api/v1/me`。
+
+**P4 人员管理**（6 条路由，均要求 `user.manage` 权限）：
+
+| 接口 | 说明 |
+| --- | --- |
+| `GET /api/v1/users` | 账号列表，字段对齐 `auth-store.js` 的 `safe()` |
+| `POST /api/v1/users` | 新增账号，登录名查重、工号查重，默认强制首次改密 |
+| `PATCH /api/v1/users/:id` | 改资料 / 角色 / 权限 / 班级范围 / 停用启用 |
+| `POST /api/v1/users/:id/password` | 管理员重置他人密码，不需要原密码 |
+| `DELETE /api/v1/users/:id` | 删除账号 |
+| `GET /api/v1/users/meta` | 角色与权限项定义，供前端渲染勾选表 |
 
 **P2 领域**（21 条路由）：
 
@@ -585,8 +604,9 @@ rollcall/
 │   ├── storage.js          localStorage 读写（班级、每班独立加分键、设置、抽取状态）
 │   ├── auth/               账号与权限（P1）
 │   │   ├── crypto.js             SHA-256 + PBKDF2（原生 / 纯 JS 双路径）
-│   │   ├── perm.js               33 条权限、7 分组、4 角色
-│   │   ├── auth-store.js         用户存储（含「最后一个管理员」保护）
+│   │   ├── perm.js               34 条权限、7 分组、4 角色
+│   │   ├── auth-store.js         本机模式的账号存储（含「最后一个管理员」保护）
+│   │   ├── user-store.js         账号统一入口：按模式转发到 RCAuthStore 或 /api/v1/users
 │   │   ├── session.js            会话、登录、锁定、can()、classScopes()
 │   │   ├── login.js              登录页逻辑（账号密码 + 强制改密两 pane）
 │   │   └── user-ui.js            用户芯片、账号菜单、人员管理、改密
@@ -617,12 +637,14 @@ rollcall/
 │   │   ├── router.ts / ctx.ts    极简路由、请求上下文与权限助手
 │   │   ├── audit.ts              审计写入
 │   │   ├── db/                   驱动（sqlite/pg）、方言、迁移执行器、001_init.sql
-│   │   ├── auth/                 scrypt 密码、会话与 CSRF、33 条权限、用户、seed
-│   │   └── routes/               auth.ts（登录登出改密 me）、health.ts（健康检查）
+│   │   ├── auth/                 scrypt 密码、会话与 CSRF、34 条权限、用户、seed
+│   │   └── routes/               auth.ts（登录登出改密 me）、health.ts（健康检查）、
+│   │                             classes.ts / scores.ts / edu.ts（P2 领域）、users.ts（P4 人员管理）
 │   ├── scripts/smoke.mjs         端到端冒烟测试（19 条断言）
 │   ├── .env.example              全部环境变量与注释
 │   └── data/                    运行期生成（SQLite 库 + 日志，不进仓库）
-├── tools/                  构建/校验脚本（scope-games-css、verify-admin-hash）
+├── tools/                  构建/校验脚本（scope-games-css、verify-admin-hash、
+│                           test-p4-users.sh 人员管理接口 29 条断言）
 └── .gitignore
 ```
 

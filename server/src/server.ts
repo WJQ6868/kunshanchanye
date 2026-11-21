@@ -32,6 +32,7 @@ import { registerHealthRoutes } from './routes/health.ts';
 import { registerClassRoutes } from './routes/classes.ts';
 import { registerScoreRoutes } from './routes/scores.ts';
 import { registerEduRoutes } from './routes/edu.ts';
+import { registerUserRoutes } from './routes/users.ts';
 
 export interface AppOptions {
   cfg: Config;
@@ -48,6 +49,8 @@ export function buildRouter(): Router {
   registerClassRoutes(r);
   registerScoreRoutes(r);
   registerEduRoutes(r);
+  // P4 人员管理：账号增删改、重置密码、权限与任教班级分配
+  registerUserRoutes(r);
   return r;
 }
 

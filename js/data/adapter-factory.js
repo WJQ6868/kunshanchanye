@@ -217,6 +217,23 @@
       return adapter.refreshMe();
     },
 
+    /**
+     * 透传到当前适配器的 request(method, path, body)。
+     *
+     * 为什么需要它：远程适配器内部有一个带 CSRF/credentials 的通用 request，
+     * 但它是闭包私有方法。RCSession.changePassword 之类「只发一个自定义请求、
+     * 不值得为它在适配器里另开一个具名方法」的场景，需要门面把这条路让出来。
+     * 本机模式没有网络层，如实返回失败而不是假装成功。
+     * @returns {Promise<any>}
+     */
+    request: function (method, path, body, extraHeaders) {
+      assertReady();
+      if (!adapter || typeof adapter.request !== 'function') {
+        return Promise.reject(new Error('本机模式没有服务端请求通道'));
+      }
+      return adapter.request(method, path, body, extraHeaders);
+    },
+
     /* ---------- 教务对接（仅服务器模式） ---------- */
 
     eduStatus: function () {
@@ -231,6 +248,43 @@
         return Promise.resolve({ ok: false, msg: '本机模式没有教务对接' });
       }
       return adapter.eduSync();
+    },
+
+    /* ---------- 人员管理（仅服务器模式；本地模式由 user-store 走 RCAuthStore） ---------- */
+
+    listUsers: function () {
+      if (!adapter || typeof adapter.listUsers !== 'function') {
+        return Promise.resolve({ ok: false, msg: '本机模式请用 RCAuthStore' });
+      }
+      return adapter.listUsers();
+    },
+
+    createUser: function (input) {
+      if (!adapter || typeof adapter.createUser !== 'function') {
+        return Promise.resolve({ ok: false, msg: '本机模式请用 RCAuthStore' });
+      }
+      return adapter.createUser(input);
+    },
+
+    updateUser: function (id, patch) {
+      if (!adapter || typeof adapter.updateUser !== 'function') {
+        return Promise.resolve({ ok: false, msg: '本机模式请用 RCAuthStore' });
+      }
+      return adapter.updateUser(id, patch);
+    },
+
+    removeUser: function (id) {
+      if (!adapter || typeof adapter.removeUser !== 'function') {
+        return Promise.resolve({ ok: false, msg: '本机模式请用 RCAuthStore' });
+      }
+      return adapter.removeUser(id);
+    },
+
+    resetUserPassword: function (id, newPassword) {
+      if (!adapter || typeof adapter.resetUserPassword !== 'function') {
+        return Promise.resolve({ ok: false, msg: '本机模式请用 RCAuthStore' });
+      }
+      return adapter.resetUserPassword(id, newPassword);
     },
 
     /**

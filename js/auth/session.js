@@ -69,6 +69,23 @@
 
   function clearFail() { setFailState({ n: 0, until: 0 }); }
 
+  /**
+   * 从适配器抛出的错误里抠出人话。
+   *
+   * 适配器把非 2xx 统一包成 `Error('HTTP 400 {"code":"BAD_REQUEST","message":"原密码不正确"}')`，
+   * 直接甩给用户就是一串 JSON。这里优先取服务端的 message 字段，
+   * 取不到才退回兜底文案 —— 与 adapter-remote.js 里的同名函数保持一致。
+   */
+  function pickMsg(e, fallback) {
+    var raw = (e && e.message) || '';
+    var m = /"message"\s*:\s*"([^"]+)"/.exec(raw);
+    if (m) return m[1];
+    if (e && e.status === 401) return '登录已过期，请重新登录';
+    if (!raw) return fallback;
+    return fallback + '：' + raw;
+  }
+
+
   /* ---------- 会话持久化 ---------- */
 
   function readSession() {
@@ -330,9 +347,22 @@
         return Promise.resolve({ ok: false, msg: '数据适配器未就绪' });
       }
       return global.RCData.request('POST', '/auth/password', { oldPassword: oldPw, newPassword: newPw })
-        .then(function () { return { ok: true }; })
+        .then(function (r) {
+          /* 服务端改密成功会回新的 /me（mustChange 已清），就地重装；
+             同时刷一次适配器缓存 —— 登录页改完密会紧接着调 refresh()，
+             而 refresh() 远程分支读的是适配器缓存，缓存不刷新就会把
+             mustChange:true 的旧副本装回来，人又被弹回改密页。 */
+          if (r && r.user) buildRemote(r);
+          if (global.RCData && typeof global.RCData.refreshMe === 'function') {
+            return global.RCData.refreshMe().then(function (rr) {
+              if (rr && rr.ok && rr.me) buildRemote(rr.me);
+              return { ok: true };
+            }).catch(function () { return { ok: true }; });
+          }
+          return { ok: true };
+        })
         .catch(function (e) {
-          return { ok: false, msg: (e && e.message) ? String(e.message).replace(/^HTTP \d+ /, '') : '修改失败' };
+          return { ok: false, msg: pickMsg(e, '修改失败') };
         });
     }
 
@@ -355,15 +385,19 @@
   /** 管理员改别人密码（不需要原密码） */
   function resetPassword(userId, newPw) {
     if (!can('user.manage')) return Promise.resolve({ ok: false, msg: '没有权限' });
-    /* 远程模式账号存在服务端，P4 人员管理接口尚未提供，先如实拒绝，
-       不要假装成功——否则管理员以为改好了，实际学生还能用旧密码登录。 */
+    /* 两种模式都走 RCUserStore：本机模式内部派生后写 localStorage，
+       服务器模式转发 POST /users/:id/password 让服务端 scrypt 后入库。
+       重置后一律要求对方下次登录改密。 */
+    if (global.RCUserStore && typeof global.RCUserStore.resetPassword === 'function') {
+      return global.RCUserStore.resetPassword(userId, newPw);
+    }
     if (remoteMode) {
-      return Promise.resolve({ ok: false, msg: '服务器模式下重置密码功能尚未开放，请用该账号自助修改' });
+      return Promise.resolve({ ok: false, msg: '账号存储未就绪，请刷新页面后重试' });
     }
     var chk = global.RCCrypto.checkPassword(newPw);
     if (!chk.ok) return Promise.resolve({ ok: false, msg: chk.msg });
     return global.RCCrypto.derive(newPw).then(function (pw) {
-      var r = global.RCAuthStore.update(userId, { pw: pw });
+      var r = global.RCAuthStore.update(userId, { pw: pw, mustChange: true });
       return r.ok ? { ok: true } : { ok: false, msg: r.msg };
     });
   }

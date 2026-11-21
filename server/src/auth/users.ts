@@ -64,8 +64,13 @@ export function toPublic(row: UserRow): PublicUser {
   };
 }
 
-/** 给 /me 用的完整视图：用户 + 有效权限 + 范围 */
-export function toMe(row: UserRow) {
+/** 给 /me 用的完整视图：用户 + 有效权限 + 范围（+ 会话到期时间）
+ *
+ * 第二个参数是可选的会话行：登录 / 访客登录 / /me / 改密 都把当前会话传进来，
+ * 前端据此判断「登录已满 2 小时」并在到期时自动跳回登录页。
+ * 不传就退化成旧结构（只有 user/permissions/classScopes），不破坏老调用方。
+ */
+export function toMe(row: UserRow, session?: { issued_at?: string | null; expires_at?: string | null } | null) {
   const pub = toPublic(row);
   const perms = effective(row.role, pub.perms);
   return {
@@ -79,6 +84,9 @@ export function toMe(row: UserRow) {
     },
     permissions: perms,
     classScopes: pub.classScopes,
+    ...(session && session.expires_at
+      ? { session: { issuedAt: session.issued_at || null, expiresAt: session.expires_at } }
+      : {}),
   };
 }
 

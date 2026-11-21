@@ -90,6 +90,15 @@
         if (res.status === 401) {
           var e401 = new Error('UNAUTHORIZED');
           e401.status = 401;
+          /* 任何接口回 401 = 服务端判定会话已失效（Cookie 到期 / 满 2 小时被吊销）。
+             统一在这里通知会话层走「过期 → 回登录页」，
+             避免各个调用点各自处理、有的只弹提示却不跳转。
+             未登录（登录页输错密码）时 expireNow 会因为 current 为空直接返回 false。 */
+          try {
+            if (global.RCSession && typeof global.RCSession.expireNow === 'function') {
+              global.RCSession.expireNow('unauthorized');
+            }
+          } catch (e) {}
           throw e401;
         }
         if (!res.ok) {

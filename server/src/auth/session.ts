@@ -4,7 +4,7 @@
    计划书 §11：
    · 库里只存 token 的 sha256（库泄露拿不到可用会话）
    · Cookie: HttpOnly + Secure + SameSite=Lax + Path=/
-   · 空闲 30 分钟 / 绝对 12 小时
+   · 空闲 30 分钟 / 绝对 2 小时（满 2 小时必须重新登录，见 SESSION_ABS_MIN）
    · 改密、禁用、权限变更 → 吊销该用户全部会话
    · 单用户并发会话 ≤ 5
    · 写操作要求 X-CSRF-Token（双提交，对比 csrf_secret）
@@ -47,6 +47,7 @@ export interface IssuedSession {
   token: string;
   csrf: string;
   sessionId: string;
+  issuedAt: string;
   expiresAt: string;
 }
 
@@ -103,7 +104,7 @@ export async function issueSession(
     ],
   );
 
-  return { token, csrf, sessionId: id, expiresAt };
+  return { token, csrf, sessionId: id, issuedAt: nowIso, expiresAt };
 }
 
 /** 按 token 查会话；同时做空闲超时与滑动续期 */

@@ -95,7 +95,7 @@ export function loadConfig(): Config {
     cookieName: str('COOKIE_NAME', 'rc_sid'),
     cookieSecure,
     sessionIdleMs: int('SESSION_IDLE_MIN', 30, 1, 720) * 60_000,
-    sessionAbsoluteMs: int('SESSION_ABS_MIN', 720, 1, 7200) * 60_000,
+    sessionAbsoluteMs: int('SESSION_ABS_MIN', 120, 1, 7200) * 60_000,
     loginWindowMs: int('LOGIN_WINDOW_MIN', 10, 1, 1440) * 60_000,
     loginMaxFails: int('LOGIN_MAX_FAILS', 5, 1, 100),
     staticDir: str('STATIC_DIR', '../'),

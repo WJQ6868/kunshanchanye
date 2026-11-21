@@ -3254,6 +3254,25 @@
    * 引导：先确定数据源（本地 / 远程），再跑 init()。
    * 这样 app.js 里的同步读写全部走 RCData 门面，UI 不需要 async 化。
    */
+  /**
+   * 登录态到期（满 2 小时 / 服务端判失效）时的统一收尾。
+   * 由 RCSession 的到期巡检或任意接口 401 触发，唯一职责是：
+   * 清掉界面上的登录痕迹 → 收回登录页并说明原因。
+   * 注意不能刷新页面：老师可能正在填分，刷新会丢掉未提交的输入。
+   */
+  function onSessionExpired(reason) {
+    try {
+      state.me = null;
+      state.selected = {};
+      state.busy = false;
+      hideResult();
+      $$('.modal.show').forEach(function (m) { hideModal(m); });
+    } catch (e) { console.warn('[RC] 会话到期清理失败', e); }
+    if (global.RCLogin && typeof global.RCLogin.signOut === 'function') {
+      global.RCLogin.signOut({ expired: true, reason: reason || 'timeout' });
+    }
+  }
+
   function boot() {
     var info = { mode: 'local', reason: '未初始化' };
     var started = false;
@@ -3280,6 +3299,12 @@
 
       // 登录门禁：两种模式都要先登录，区别只在于账号从哪来。
       if (global.RCLogin && typeof global.RCLogin.start === 'function') {
+        /* 注册「登录态到期」回调：满 2 小时或服务端判会话失效时，
+           RCSession 只负责清自己的状态，界面收尾交给这里（清弹窗、收回到登录页）。 */
+        if (global.RCSession && typeof global.RCSession.onExpire === 'function') {
+          try { global.RCSession.onExpire(onSessionExpired); }
+          catch (e) { console.warn('[RC] 注册会话到期回调失败', e); }
+        }
         global.RCLogin.start({
           mode: info.mode,
           onSuccess: function (me) { onSignedIn(me); }

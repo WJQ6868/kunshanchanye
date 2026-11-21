@@ -14,14 +14,35 @@
   'use strict';
 
   var KEY = 'rollcall.session.v1';
-  var TTL = 12 * 60 * 60 * 1000;   // 12 小时无操作自动失效
+  var TTL = 2 * 60 * 60 * 1000;     // 本地模式：登录满 2 小时必须重新登录
+  /* 服务端模式的绝对有效期，与服务端 SESSION_ABS_MIN=120 对齐。
+     正常情况用 /me 返回的 session.expiresAt（服务端真源）；
+     这个常量只在服务端没回到期时间时兜底，避免前端完全不设防。 */
+  var ABS_MS = 2 * 60 * 60 * 1000;
   var MAX_FAIL = 5;                 // 连续失败次数上限
   var LOCK_MS = 5 * 60 * 1000;      // 锁定时长
+  var WATCH_MS = 20 * 1000;         // 到期巡检间隔（20 秒，够快又不浪费）
 
   var current = null;   // 当前用户（扁平 safe 副本，供内部判断）
   var perms = {};       // 有效权限表
   var snapshot = null;  // 对外的 me() 返回值：{user, permissions, classScopes}
   var failKey = 'rollcall.loginfail.v1';
+
+  /* 会话到期时刻（毫秒）。0 = 未知（老服务端 / 本地模式）。
+     来源优先级：/me 的 session.expiresAt > 登录时 now + ABS_MS。 */
+  var expiresAtMs = 0;
+  /* 过期后要执行的回调（app.js 注册，用来清界面状态）；空数组时退回 RCLogin.signOut */
+  var expireHandlers = [];
+  var expiring = false;   // 防重入：定时巡检与 401 可能同时判定过期
+  /* 会话代次：登录 / 退出 / 过期时自增。restore() 里异步发起的 refreshMe() 回来时
+     如果代次变了，说明这期间用户已经退出或重新登录，结果必须丢弃——
+     否则会把已退出的登录态又装回内存，紧接着触发一次假的「到期」跳转。 */
+  var epoch = 0;
+  var watchTimer = null;  // 到期巡检定时器
+  var watchBound = false; // 是否已绑定 visibilitychange / focus 监听
+  /* 冷启动时发现缓存的会话已过期：登录页 start() 读到这条提示并显示，
+     否则用户只会看到「莫名其妙又回到登录页」。 */
+  var pendingNotice = '';
 
   /* 数据模式：'local'（浏览器本地账号体系）| 'remote'（服务端会话 Cookie）。
      由 RCLogin.start({mode}) 在启动时写入，之后所有认证动作按它分流。 */
@@ -93,6 +114,13 @@
       var d = JSON.parse(global.localStorage.getItem(KEY) || 'null');
       if (!d || !d.userId) return null;
       if (d.expire && d.expire < Date.now()) return null;
+      /* 绝对超时兜底：登录时刻 + TTL。防止 expire 被别处改写后无限续命。
+         命中时留一条提示，登录页 start() 会显示出来，
+         否则用户只看到「登录状态莫名丢了」。 */
+      if (d.at && Date.now() - d.at > TTL) {
+        pendingNotice = '登录已超过 2 小时，请重新登录';
+        return null;
+      }
       return d;
     } catch (e) { return null; }
   }
@@ -102,12 +130,140 @@
     try { global.localStorage.setItem(KEY, JSON.stringify(d)); } catch (e) {}
     return d;
   }
-
   function touch() {
-    /* 远程模式的续期由服务端在每次请求时滑动刷新，前端不需要写本地会话 */
-    if (remoteMode) return;
+    /* 远程模式的续期由服务端在每次请求时滑动刷新，前端不需要写本地会话。
+       注意：绝对超时是「登录满 2 小时」而不是「闲置 2 小时」，
+       所以这里不再续期，只做一次到期校验（续期会让 2 小时变成滑动窗口）。 */
+    if (remoteMode) { checkExpiry(); return; }
     var d = readSession();
-    if (d) writeSession(d.userId);
+    if (!d) { expireNow('timeout'); return; }
+    if (!expiresAtMs) { expiresAtMs = d.expire; startWatch(); }
+    checkExpiry();
+  }
+
+  /* ---------- 登录态到期（满 2 小时必须重新登录） ---------- */
+
+  /**
+   * 记录会话到期时刻。
+   * 优先用服务端 /me 返回的 session.expiresAt（真源，绝对超时由服务端裁决）；
+   * 服务端没给（老版本）时用 fallbackMs 兜底成 now + 2 小时，
+   * 避免前端完全不设防、让用户以为登录态永不过期。
+   * @param {Object} payload /me 结构
+   * @param {number} [fallbackMs] 兜底时长
+   */
+  function applySessionMeta(payload, fallbackMs) {
+    var s = payload && payload.session;
+    var exp = s && s.expiresAt ? Date.parse(s.expiresAt) : NaN;
+    if (isFinite(exp) && exp > 0) expiresAtMs = exp;
+    /* 兜底只在「完全没有到期时刻」时生效一次。
+       否则每次 refresh()/buildRemote() 都会把到期时间推到 now+2h，2 小时变成永不失效。 */
+    else if (fallbackMs && !expiresAtMs) expiresAtMs = Date.now() + fallbackMs;
+    if (expiresAtMs) { bindWatchEvents(); startWatch(); }
+    return expiresAtMs;
+  }
+
+  /** 到期回调注册（app.js 用来清界面状态）；返回注销函数 */
+  function onExpire(fn) {
+    if (typeof fn !== 'function') return function () {};
+    expireHandlers.push(fn);
+    return function () {
+      var i = expireHandlers.indexOf(fn);
+      if (i >= 0) expireHandlers.splice(i, 1);
+    };
+  }
+
+  /**
+   * 立即判定并执行过期。
+   * 定时巡检、切回标签页、以及任何接口返回 401 都走这里，保证只有一条出口：
+   * 清掉内存里的登录态 → 清本地会话 → 通知界面回到登录页。
+   * @param {string} [reason] 'timeout'（满 2 小时）| 'unauthorized'（服务端判过期）
+   * @returns {boolean} 是否真的执行了过期
+   */
+  function expireNow(reason) {
+    if (expiring || !current) return false;
+    expiring = true;
+    epoch++;
+    try {
+      current = null;
+      perms = {};
+      snapshot = null;
+      expiresAtMs = 0;
+      try { global.localStorage.removeItem(KEY); } catch (e) {}
+      stopWatch();
+      /* 远程模式还要把适配器里的 /me 副本清掉（logout() 会先同步清 cache.me 再发请求，
+         此时 Cookie 已失效，请求会 401，这里不在乎结果）。否则界面回到登录页了，
+         适配器仍认为自己有登录用户，写守卫会放行一堆注定 401 的请求。 */
+      if (remoteMode && global.RCData && typeof global.RCData.logout === 'function') {
+        try { global.RCData.logout(); } catch (e) {}
+      }
+      var hs = expireHandlers.slice();
+      for (var i = 0; i < hs.length; i++) {
+        try { hs[i](reason || 'timeout'); } catch (e) {}
+      }
+      /* 没注册回调时退回登录页自身的收尾逻辑，保证一定跳得回去 */
+      if (!hs.length && global.RCLogin && typeof global.RCLogin.signOut === 'function') {
+        try { global.RCLogin.signOut(); } catch (e) {}
+      }
+    } finally {
+      expiring = false;
+    }
+    return true;
+  }
+
+  /** 到期检查：到点即过期。返回 true 表示这次真的过期了 */
+  function checkExpiry() {
+    if (!current || !expiresAtMs) return false;
+    if (Date.now() < expiresAtMs) return false;
+    return expireNow('timeout');
+  }
+
+  /** 取出并清空「待提示」文案（登录页启动时用；取过一次就不再重复弹） */
+  function takeNotice() {
+    var s = pendingNotice;
+    pendingNotice = '';
+    return s;
+  }
+
+  /** 会话到期时刻（毫秒）；0 = 未知 */
+  function expiresAt() {
+    return expiresAtMs;
+  }
+
+  /** 距到期还有多少毫秒（未知返回 -1，已过期返回 0） */
+  function remainingMs() {
+    if (!expiresAtMs) return -1;
+    var left = expiresAtMs - Date.now();
+    return left > 0 ? left : 0;
+  }
+
+  function stopWatch() {
+    if (watchTimer) {
+      try { global.clearInterval(watchTimer); } catch (e) {}
+      watchTimer = null;
+    }
+  }
+
+  function startWatch() {
+    if (watchTimer || !global.setInterval) return;
+    watchTimer = global.setInterval(function () {
+      if (!current) { stopWatch(); return; }
+      checkExpiry();
+    }, WATCH_MS);
+  }
+
+  /* 标签页切回来时立刻校验一次：后台标签页的定时器会被浏览器降频，
+     只靠 setInterval 会晚几十秒才跳登录页。 */
+  function bindWatchEvents() {
+    if (watchBound) return;
+    watchBound = true;
+    if (global.document && global.document.addEventListener) {
+      global.document.addEventListener('visibilitychange', function () {
+        if (!global.document.hidden) checkExpiry();
+      });
+    }
+    if (typeof global.addEventListener === 'function') {
+      global.addEventListener('focus', function () { checkExpiry(); });
+    }
   }
 
   /* ---------- 装载用户 ---------- */
@@ -149,6 +305,8 @@
     };
     perms = payload.permissions || {};
     snapshot = { user: current, permissions: perms, classScopes: scopes };
+    /* 记录到期时刻并启动巡检：满 2 小时（或服务端给的 expiresAt 到点）自动回登录页 */
+    applySessionMeta(payload, remoteMode ? ABS_MS : 0);
     return snapshot;
   }
 
@@ -163,14 +321,30 @@
     if (remoteMode) {
       var payload = global.RCData ? global.RCData.me() : null;
       if (!payload || !payload.user) return null;
+      /* 先做一次到期判断：缓存里的会话可能早就过了 2 小时（比如隔夜开着的标签页） */
+      var cachedExp = payload.session && payload.session.expiresAt ? Date.parse(payload.session.expiresAt) : NaN;
+      if (isFinite(cachedExp) && cachedExp > 0 && cachedExp <= Date.now()) {
+        pendingNotice = '登录已超过 2 小时，请重新登录';
+        signOut();
+        return null;
+      }
       var snap = buildRemote(payload);
       if (!snap) return null;
+      /* 记下代次：refreshMe() 回来时若用户已退出/重新登录，这次结果必须丢弃 */
+      var myEpoch = epoch;
       if (global.RCData.refreshMe) {
         global.RCData.refreshMe().then(function (r) {
+          if (epoch !== myEpoch) return;   // 期间已退出或换人登录，别把旧态装回去
           if (r && r.ok && r.me) buildRemote(r.me);
           else if (r && !r.ok && r.msg === '未登录') {
-            signOut();
-            if (global.RCLogin && global.RCLogin.signOut) global.RCLogin.signOut();
+            /* 401 已经由 adapter-remote 的 request() 统一调过 expireNow()（那里会清态并回登录页）；
+               这里只兜两种没走到回调的情况：冷启动时 current 已被清、或并发守卫跳过了。
+               两种都走 RCLogin.signOut({expired:true})，保证提示文案不被后续的清空操作抹掉。 */
+            if (isIn()) {
+              expireNow('unauthorized');
+            } else if (global.RCLogin && typeof global.RCLogin.signOut === 'function') {
+              global.RCLogin.signOut({ expired: true, reason: 'unauthorized' });
+            }
           }
         }).catch(function () { /* 网络异常时保留本地副本，不打断课堂 */ });
       }
@@ -184,6 +358,20 @@
       signOut();
       return null;
     }
+    /* 本地模式刷新后同样要恢复到期时刻并启动巡检，
+       否则「刷新一下就永久不过期」，2 小时限制只在首次登录那个页面内有效。
+       这里不能用 checkExpiry()：它要求 current 已装载，此刻还没 build。
+       到期时刻取「登录时刻 + TTL」与「会话里记的 expire」中更早的那个。 */
+    var hard = s.at ? s.at + TTL : 0;
+    var exp = hard ? Math.min(s.expire || hard, hard) : (s.expire || 0);
+    if (exp && exp <= Date.now()) {
+      signOut();
+      pendingNotice = '登录已超过 2 小时，请重新登录';
+      return null;
+    }
+
+    expiresAtMs = exp;
+    if (expiresAtMs) { bindWatchEvents(); startWatch(); }
     return build(u);
   }
 
@@ -198,6 +386,7 @@
       if (!global.RCData || typeof global.RCData.login !== 'function') {
         return Promise.resolve({ ok: false, msg: '数据适配器未就绪，请刷新页面重试' });
       }
+      epoch++;
       var res = global.RCData.login(login, password);
       if (!res) return Promise.resolve({ ok: false, msg: '当前模式不支持服务端登录' });
       return res.then(function (r) {
@@ -229,7 +418,10 @@
         return { ok: false, msg: locked ? '尝试次数过多，请 5 分钟后再试' : '登录名或密码不正确' };
       }
       clearFail();
-      writeSession(u.id);
+      var sd = writeSession(u.id);
+      expiresAtMs = sd.expire;
+      bindWatchEvents();
+      startWatch();
       return { ok: true, me: build(u) };
     });
   }
@@ -247,6 +439,7 @@
       if (!global.RCData || typeof global.RCData.guestLogin !== 'function') {
         return Promise.resolve({ ok: false, msg: '数据适配器未就绪，请刷新页面重试' });
       }
+      epoch++;
       var res = global.RCData.guestLogin();
       if (!res) return Promise.resolve({ ok: false, msg: '当前模式不支持访客登录' });
       return res.then(function (r) {
@@ -263,7 +456,10 @@
     if (g.user.disabled) return Promise.resolve({ ok: false, msg: '访客账号已被停用，请联系管理员' });
 
     clearFail();
-    writeSession(g.user.id);
+    var gd = writeSession(g.user.id);
+    expiresAtMs = gd.expire;
+    bindWatchEvents();
+    startWatch();
     return Promise.resolve({ ok: true, me: build(g.user) });
   }
 
@@ -276,9 +472,12 @@
   }
 
   function signOut() {
+    epoch++;
     current = null;
     perms = {};
     snapshot = null;
+    expiresAtMs = 0;
+    stopWatch();
     try { global.localStorage.removeItem(KEY); } catch (e) {}
     /* 远程模式还要让服务端吊销会话并清 Cookie，否则下次打开还是登录态 */
     if (remoteMode && global.RCData && typeof global.RCData.logout === 'function') {
@@ -438,6 +637,13 @@
     resetPassword: resetPassword,
     refresh: refresh,
     touch: touch,
-    lockedFor: lockedFor
+    lockedFor: lockedFor,
+    /* ---- 登录态 2 小时绝对过期 ---- */
+    onExpire: onExpire,          // 注册过期回调（app.js 用来清界面状态）
+    expireNow: expireNow,        // 立即判过期并回登录页（401 统一出口）
+    checkExpiry: checkExpiry,    // 手动触发一次到期检查
+    expiresAt: expiresAt,        // 到期时刻（毫秒），0=未知
+    remainingMs: remainingMs,    // 距到期毫秒数，-1=未知
+    takeNotice: takeNotice       // 取「会话已过期」提示文案（登录页显示一次）
   };
 })(window);

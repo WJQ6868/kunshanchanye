@@ -93,7 +93,7 @@ export function registerAuthRoutes(r: Router): void {
 
       return json(
         200,
-        toMe(user),
+        toMe(user, { issued_at: issued.issuedAt, expires_at: issued.expiresAt }),
         {
           'Set-Cookie': [
             cookie(ctx.cfg.cookieName, issued.token, {
@@ -154,7 +154,7 @@ export function registerAuthRoutes(r: Router): void {
 
       return json(
         200,
-        toMe(guest),
+        toMe(guest, { issued_at: issued.issuedAt, expires_at: issued.expiresAt }),
         {
           'Set-Cookie': [
             cookie(ctx.cfg.cookieName, issued.token, {
@@ -196,7 +196,7 @@ export function registerAuthRoutes(r: Router): void {
   /* ---------- 续期（滑动过期） ---------- */
   r.post('/auth/refresh', async (ctx: Ctx): Promise<Reply> => {
     if (!ctx.user) throw err.unauthorized();
-    return json(200, toMe(ctx.user));
+    return json(200, toMe(ctx.user, ctx.session));
   });
 
   /* ---------- 当前用户 ---------- */
@@ -204,7 +204,7 @@ export function registerAuthRoutes(r: Router): void {
     '/me',
     async (ctx: Ctx): Promise<Reply> => {
       if (!ctx.user) throw err.unauthorized();
-      return json(200, toMe(ctx.user));
+      return json(200, toMe(ctx.user, ctx.session));
     },
     { auth: false },
   );
@@ -238,6 +238,6 @@ export function registerAuthRoutes(r: Router): void {
     });
 
     const fresh = await findById(ctx.db, user.id);
-    return json(200, fresh ? toMe(fresh) : { ok: true });
+    return json(200, fresh ? toMe(fresh, ctx.session) : { ok: true });
   });
 }

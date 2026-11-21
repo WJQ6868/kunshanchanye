@@ -575,16 +575,29 @@
     restoreRemember();
     var lf = global.RCSession.lockedFor();
     if (lf > 0) showErr(els.loginErr, '尝试次数过多，请 ' + Math.ceil(lf / 1000) + ' 秒后再试');
+    /* 冷启动时如果发现缓存的会话已过期（隔夜开着的标签页），restore() 会返回 null
+       并留下一条提示。这里必须显示出来，否则用户只会觉得「登录状态莫名丢了」。 */
+    if (!lf && global.RCSession.takeNotice) {
+      var notice = global.RCSession.takeNotice();
+      if (notice) showErr(els.loginErr, notice);
+    }
   }
 
-  /** 登出：清会话 + 回到登录页（不刷新页面，避免动画状态丢失提示不友好） */
-  function signOut() {
-    global.RCSession.signOut();
+  /**
+   * 登出：清会话 + 回到登录页（不刷新页面，避免动画状态丢失提示不友好）
+   * @param {{expired?:boolean, reason?:string}} [opt] expired=true 表示是「登录态到期」触发的，
+   *        此时会话层已经把内存态清干净了，这里只负责把界面收回登录页并给出说明。
+   */
+  function signOut(opt) {
+    var expired = !!(opt && opt.expired);
+    /* 到期路径下 RCSession.expireNow() 已经清过状态并停掉巡检，
+       再调一次 signOut() 只会多发一个必然 401 的 /auth/logout 请求。 */
+    if (!expired) global.RCSession.signOut();
     pendingMe = null;
     lastPw = '';
     /* 退出登录必须连「本标签页已进入」标记一起清掉：
        否则退出后重新登录（同一个 id）再刷新，会被误判成「同一标签页刷新」而自动跳进去，
-       绕过了「必须点按钮」的约定。 */
+       绕过了「必须点按钮」的约定。到期同样要清，否则用户重新登录后一刷新又直接进主界面。 */
     clearEntered();
     if (els.app) els.app.hidden = true;
     if (els.screen) {
@@ -599,6 +612,14 @@
     method('pwd');
     // 退出后如果勾了「记住我」，把账号密码填回去，方便下一节课直接登
     restoreRemember();
+    /* 到期必须明确告诉用户为什么被踢回登录页，否则看起来像「莫名其妙掉线」 */
+    if (expired) {
+      var why = (opt && opt.reason === 'unauthorized')
+        ? '登录状态已失效，请重新登录'
+        : '登录已超过 2 小时，请重新登录';
+      showErr(els.loginErr, why);
+      if (els.loginUser) { try { els.loginUser.focus(); } catch (e) {} }
+    }
   }
 
   global.RCLogin = { start: start, signOut: signOut, enterApp: enterApp, showGateway: showGateway };

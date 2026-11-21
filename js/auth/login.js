@@ -176,6 +176,59 @@
     } catch (e) { /* 隐私模式下写不进去就算了，不打断登录 */ }
   }
 
+  /* ---------------- 本标签页「已进过主界面」标记 ---------------- */
+
+  /**
+   * 为什么需要这个标记：
+   *   用户要求「必须点按钮才进入，不要自动跳转」，所以刷新页面恢复会话时
+   *   不能直接 enterApp()。但「同一标签页内按 F5」和「关掉标签页重新打开」
+   *   在需求上是两件事：前者人不该被反复拦在「准备就绪」，后者要保守。
+   *
+   *   能天然区分这两者的存储只有 sessionStorage —— 它在同一标签页（含刷新）内
+   *   一直存在，标签页一关就没了。localStorage 活得比标签页久（会变成自动跳转），
+   *   内存变量又活不过刷新（等于没修），都不合适。
+   *
+   * 写入时机：只有 enterApp()（用户真的点了「进入系统」）才写。
+   * 清除时机：signOut()、以及任何一次走到 showGateway()（人又站回门口了）时清，
+   *          这样「退出登录 / 换个账号登录」之后绝不会残留旧标记。
+   */
+  var ENTERED_KEY = 'rollcall.entered.v1';
+
+  function readEntered() {
+    try {
+      var d = JSON.parse(global.sessionStorage.getItem(ENTERED_KEY) || 'null');
+      if (!d || typeof d !== 'object') return null;
+      return d;
+    } catch (e) { return null; }
+  }
+
+  function markEntered(me) {
+    try {
+      global.sessionStorage.setItem(ENTERED_KEY, JSON.stringify({
+        id: (me && me.user && me.user.id) || '',
+        at: Date.now()
+      }));
+    } catch (e) { /* 写不进去就退化成「每次刷新都停在准备就绪」，不影响正确性 */ }
+  }
+
+  function clearEntered() {
+    try { global.sessionStorage.removeItem(ENTERED_KEY); } catch (e) {}
+  }
+
+  /**
+   * 本次页面加载是否可以直接进主界面（= 同一标签页内的刷新）。
+   * 三个条件全满足才放行，任意一个不满足都退回家门口：
+   *   ① 本标签页里有「已进入」标记；
+   *   ② 标记里的用户 id 与当前恢复出来的登录态一致（防「换个人登录后残留」）；
+   *   ③ 当前账号不需要强制改密（改密没完成的人不能绕过改密页）。
+   */
+  function canAutoEnter(me) {
+    if (!me || !me.user || me.user.mustChange) return false;
+    var d = readEntered();
+    if (!d) return false;
+    return String(d.id || '') === String(me.user.id || '');
+  }
+
   /** 进登录页时回填：勾选状态 + 账号 + 密码 */
   function restoreRemember() {
     var d = readRemember();
@@ -207,6 +260,9 @@
     }
     if (els.app) els.app.hidden = false;
     document.documentElement.classList.add('logged-in');
+    /* 记下「这个标签页里人已经真的进过主界面」—— 下次同标签页刷新直接放行。
+       必须写在 enterApp 里（而不是登录成功处），因为只有它代表用户点了按钮。 */
+    markEntered(me);
     if (typeof onDone === 'function') {
       try { onDone(me); } catch (e) { console.error('[RCLogin] 登录后回调异常', e); }
     }
@@ -221,6 +277,10 @@
   function showGateway(me, note) {
     if (!me || !me.user) { pane('login'); return; }
     pendingMe = me;
+
+    /* 人又站回门口了（冷启动 / 刚登录 / 换账号 / 改密未完成）：
+       清掉「已进入」标记，保证下一次刷新仍要重新点按钮，不会被这个标记放行。 */
+    clearEntered();
 
     // 首次登录必须改密，改完也要再点一次按钮才进
     if (me.user.mustChange) {
@@ -490,10 +550,19 @@
       bound = true;
     }
 
-    // 会话还在（没退出、没过期）→ 不自动进，停在「准备就绪」等用户点按钮。
-    // 这是刻意的：用户要求「必须点按钮才进入下一个界面」，刷新页面不该直接跳。
+    // 会话还在（没退出、没过期）→ 分两种情况：
+    //   ① 同一标签页内刷新（sessionStorage 里有「已进入」标记，且是同一个人）
+    //      → 直接进主界面，不再拦在「准备就绪」。人已经点过按钮了，刷新
+    //        只是把页面重画一遍，再拦一次纯属骚扰。
+    //   ② 冷启动 / 关掉标签页后重新打开 / 换了账号
+    //      → 保守处理，仍停在「准备就绪」等用户点按钮（用户明确要求不自动跳转）。
     var me = global.RCSession.restore();
     if (me) {
+      if (canAutoEnter(me)) {
+        pendingMe = null;
+        enterApp(me);
+        return;
+      }
       showGateway(me, '检测到上次的登录状态，点击下方按钮继续');
       return;
     }
@@ -513,6 +582,10 @@
     global.RCSession.signOut();
     pendingMe = null;
     lastPw = '';
+    /* 退出登录必须连「本标签页已进入」标记一起清掉：
+       否则退出后重新登录（同一个 id）再刷新，会被误判成「同一标签页刷新」而自动跳进去，
+       绕过了「必须点按钮」的约定。 */
+    clearEntered();
     if (els.app) els.app.hidden = true;
     if (els.screen) {
       els.screen.classList.remove('hidden', 'leaving');

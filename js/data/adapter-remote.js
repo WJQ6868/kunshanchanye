@@ -49,6 +49,10 @@
     var listeners = [];
     var online = true;
     var flushing = false;
+    // 本次会话里「确认从服务端拉到过」的班级集合。
+    // 只有在这里面的班级，才允许在列表里缺记录的情况下提交加分
+    // （否则对账式 PUT 会把服务端历史分全部冲正）。
+    var scoresLoaded = Object.create(null);
 
     function emit(evt) {
       listeners.forEach(function (cb) {
@@ -271,33 +275,122 @@
 
     /* ---------- 写（同步写缓存 + 入队，立即返回） ---------- */
 
-    function setRoster(list) {
+    /**
+     * 加分记录的写守卫，和 roster/classes 同源问题。
+     *
+     * 服务端的 PUT /classes/:name/scores 是**对账式**写入：
+     * payload 里没有、但库里还活着的记录会被一条条冲正（revoked_at）。
+     * 所以只要本次会话没成功把该班的记录拉下来（cache.scores[k] 不存在、
+     * 也没在本会话里 loadScoresFor 过），此时提交「只有一条新记录」的列表，
+     * 就会把该班历史分全部冲正掉 —— 和名单被清空是同一类事故。
+     *
+     * 新建班级例外：它本来就没有历史，基线确实是空的。
+     */
+    function canWriteScores(className, recs) {
+      var k = String(className == null ? '' : className);
+      if (!Array.isArray(recs) || !recs.length) return true; // 空列表另有 confirm 保护
+      if (scoresLoaded[k]) return true;
+      if (cache.scores[k]) return true; // 本地有一份基线（这个会话写过或从缓存恢复）
+      return false;
+    }
+
+    function canWriteRoster(next, opt) {
+      var cleared = Array.isArray(next) && next.length === 0;
+      if (!cleared) return true;
+      // 本次启动根本没拿到过服务端名单 —— 无论有没有确认，都不许用未知状态覆盖
+      if (cache.roster === null) return false;
+      // 服务端明明有数据、这次却要写空：必须由用户显式确认
+      if (cache.roster.length > 0) return !!(opt && opt.confirmClear);
+      // 服务端本来就是空的，写空是幂等的
+      return true;
+    }
+
+    function setRoster(list, opt) {
+      if (!canWriteRoster(list, opt)) {
+        console.error('[RCData.remote] 拒绝写入名单：本次启动尚未从服务端取到名单，'
+          + '此时提交空名单会清空服务器数据。请刷新页面重试。');
+        emit({ type: 'rosterRejected' });
+        return false;
+      }
       cache.roster = Array.isArray(list) ? clone(list) : [];
       persistCache();
-      enqueue({ method: 'PUT', path: '/roster', body: cache.roster });
+      var path = '/roster';
+      if (Array.isArray(list) && list.length === 0) path += '?confirm=clear';
+      enqueue({ method: 'PUT', path: path, body: cache.roster });
       emit({ type: 'roster' });
       return true;
     }
 
-    function setClasses(c) {
+    function setClasses(c, opt) {
+      var nextList = (c && Array.isArray(c.list)) ? c.list : [];
+      if (nextList.length === 0) {
+        // 同 setRoster：没拿到过服务端班级列表就不许写空
+        if (cache.classes === null) {
+          console.error('[RCData.remote] 拒绝写入班级：本次启动尚未从服务端取到班级列表，'
+            + '此时提交空列表会归档服务器上的全部班级。请刷新页面重试。');
+          emit({ type: 'classesRejected' });
+          return false;
+        }
+        var known = Array.isArray(cache.classes.list) ? cache.classes.list.length : 0;
+        if (known > 0 && !(opt && opt.confirmClear)) {
+          console.error('[RCData.remote] 拒绝写入班级：现有 ' + known + ' 个班级，'
+            + '提交空列表会把它们全部归档。需显式确认。');
+          emit({ type: 'classesRejected' });
+          return false;
+        }
+      }
       cache.classes = {
         current: (c && c.current) || '',
-        list: (c && Array.isArray(c.list)) ? clone(c.list) : []
+        list: clone(nextList)
       };
       persistCache();
-      enqueue({ method: 'PUT', path: '/classes', body: cache.classes });
+      var path = '/classes';
+      if (nextList.length === 0) path += '?confirm=clear';
+      enqueue({ method: 'PUT', path: path, body: cache.classes });
       emit({ type: 'classes' });
       return true;
     }
 
-    function setScores(className, records) {
+    function setScores(className, records, opt) {
       var k = String(className == null ? '' : className);
       var recs = Array.isArray(records) ? clone(records) : [];
+      // 注意：必须在写 scoresLoaded 之前记住基线状态
+      var hadBaseline = !!(scoresLoaded[k] || cache.scores[k]);
+      if (!canWriteScores(k, recs)) {
+        console.error('[RCData.remote] 拒绝写入加分记录：本次启动尚未从服务端取到「'
+          + k + '」的记录，此时提交会按对账语义把该班历史分全部冲正。请刷新页面重试。');
+        emit({ type: 'scoresRejected', cls: k });
+        return false;
+      }
       cache.scores[k] = { records: recs, updatedAt: Date.now() };
+      scoresLoaded[k] = true;
       persistCache();
-      enqueue({ method: 'PUT', path: '/classes/' + encodeURIComponent(k) + '/scores', body: { records: recs } });
+      var path = '/classes/' + encodeURIComponent(k) + '/scores';
+      // 空列表 = 把该班记录全部冲正。只有「之前确认拿到过基线」或调用方
+      // 明确确认过，才带上服务端需要的 confirm 标记；否则不带，让服务端拒绝。
+      if (!recs.length && (hadBaseline || (opt && opt.confirmClear))) {
+        path += '?confirm=clear';
+      }
+      enqueue({ method: 'PUT', path: path, body: { records: recs } });
       emit({ type: 'scores', cls: k });
       return true;
+    }
+
+    /** 从服务端拉某班记录，写进缓存。成功后才把该班标记为「基线已知」。 */
+    function loadScoresFor(className) {
+      var k = String(className == null ? '' : className);
+      if (!k) return Promise.resolve({ ok: false, msg: '班级为空' });
+      return request('GET', '/classes/' + encodeURIComponent(k) + '/scores').then(function (r) {
+        var recs = (r && Array.isArray(r.records)) ? r.records : [];
+        cache.scores[k] = { records: recs, updatedAt: Date.now() };
+        scoresLoaded[k] = true;
+        persistCache();
+        emit({ type: 'scores', cls: k, loaded: true });
+        return { ok: true, records: clone(recs) };
+      }).catch(function (e) {
+        online = false;
+        return { ok: false, msg: (e && e.message) || String(e) };
+      });
     }
 
     function setSettings(s) {
@@ -324,6 +417,7 @@
     function removeScores(className) {
       var k = String(className == null ? '' : className);
       delete cache.scores[k];
+      delete scoresLoaded[k];
       persistCache();
       enqueue({ method: 'DELETE', path: '/classes/' + encodeURIComponent(k) + '/scores' });
       emit({ type: 'scores', cls: k, removed: true });
@@ -331,9 +425,13 @@
     }
 
     function wipe() {
-      cache.roster = [];
-      cache.classes = { current: '', list: [] };
+      // 只清本地。注意：把 roster/classes 置回 null 而不是 []，
+      // 这样「清空之后、还没重新拉到服务端数据」这段时间里，
+      // 写守卫会把它当作「基线未知」，不会因为本地是空的就往服务端写空。
+      cache.roster = null;
+      cache.classes = null;
       cache.scores = Object.create(null);
+      scoresLoaded = Object.create(null);
       cache.settings = null;
       cache.state = { picked: [], pickedByClass: {} };
       cache.history = [];
@@ -523,12 +621,15 @@
     /* ---------- 生命周期 ---------- */
 
     /**
-     * 从服务端重新拉一次班级与名单，覆盖本地缓存。
+     * 从服务端重新拉一次班级、名单与加分记录，覆盖本地缓存。
      *
-     * 为什么需要它：getClasses()/getRoster() 读的是 cache，
+     * 为什么需要它：getClasses()/getRoster()/getScores() 读的是 cache，
      * 而 cache 只在 init 时填过。教务同步、管理员在别的浏览器改名单
      * 这类「服务端数据变了但本页没动过」的情况，必须显式重拉，
      * 否则界面还停在旧快照上（曾导致同步成功但首页 0 个班）。
+     *
+     * 加分记录也在这一步拉：服务端的 PUT 是对账语义，本地没有基线就提交，
+     * 会把该班历史分全部冲正。所以「拉到基线」是允许写分的前提。
      */
     function reload() {
       return Promise.all([
@@ -545,6 +646,14 @@
           return r;
         })
       ]).then(function () {
+        // 逐个班级拉加分记录。失败不影响整体（该班就保持「基线未知」，写分的守卫会拦住）
+        var names = (cache.classes && Array.isArray(cache.classes.list))
+          ? cache.classes.list.map(function (c) { return c && c.name; }).filter(Boolean)
+          : [];
+        return Promise.all(names.map(function (n) {
+          return loadScoresFor(n).catch(function () { return { ok: false }; });
+        }));
+      }).then(function () {
         persistCache();
         online = true;
         emit({ type: 'reload' });
@@ -562,19 +671,38 @@
         request('GET', '/classes').then(function (r) {
           if (r && Array.isArray(r.list)) {
             cache.classes = { current: r.current || '', list: r.list };
-            (r.list || []).forEach(function (c) {
-              if (c && c.id && Array.isArray(c.students)) {
-                cache.scores[c.name] = cache.scores[c.name] || { records: [], updatedAt: 0 };
-              }
-            });
           }
         }).catch(function () { /* 用缓存 */ }),
         request('GET', '/settings').then(function (r) {
           if (r && typeof r === 'object') cache.settings = r;
-        }).catch(function () { /* 用默认 */ })
+        }).catch(function () { /* 用默认 */ }),
+        // 名单必须在这里就拉。缺了这一步，换电脑、清缓存、隐私窗口这些
+        // 「本地没有 rollcall.cache.v1」的场景下 getRoster() 会静默返回空数组，
+        // 首页显示「还没有学生」，而用户此时做任何一次导入/改班名/删班，
+        // 都会把空名单 PUT 到服务端，把全班学生软删掉（2026-11-21 事故）。
+        request('GET', '/roster').then(function (r) {
+          if (Array.isArray(r)) cache.roster = r;
+          else if (r && Array.isArray(r.list)) cache.roster = r.list;
+        }).catch(function () { /* 保持 null，写操作会被守卫拦住 */ }),
+        // 加分记录同理。**绝对不能在这里「先塞一个空 records 占位」**：
+        // 服务端 PUT 是对账语义，空基线 + 一条新记录 = 把该班历史分全部冲正。
+        // 拉不到就一直保持「基线未知」，让写守卫拦住，等登录后的 reload() 再补。
+        request('GET', '/classes').then(function (r) {
+          var names = (r && Array.isArray(r.list))
+            ? r.list.map(function (c) { return c && c.name; }).filter(Boolean)
+            : [];
+          return Promise.all(names.map(function (n) {
+            return loadScoresFor(n).catch(function () { return { ok: false }; });
+          }));
+        }).catch(function () { /* 保持未加载状态 */ })
       ]).then(function () {
         persistCache();
-        return { mode: 'remote', reason: '已连接服务端' };
+        return {
+          mode: 'remote',
+          reason: '已连接服务端',
+          rosterLoaded: cache.roster !== null,
+          scoresLoaded: Object.keys(scoresLoaded).length
+        };
       });
     }
 
@@ -623,6 +751,7 @@
       setRoster: setRoster,
       setClasses: setClasses,
       setScores: setScores,
+      loadScoresFor: loadScoresFor,
       setSettings: setSettings,
       setState: setState,
       setHistory: setHistory,

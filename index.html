@@ -106,6 +106,14 @@
         </div>
       </div>
 
+      <!-- 已通过验证：必须由用户点按钮才进入，不自动跳转 -->
+      <div class="login-pane hidden" id="enterPane">
+        <h3>准备就绪</h3>
+        <p class="login-sub" id="enterSub">已通过验证，点击下方按钮进入</p>
+        <p class="login-tip" id="enterWho"></p>
+        <button type="button" class="btn btn-primary btn-block login-submit" id="btnEnter">进入系统</button>
+      </div>
+
       <!-- 首次登录强制改密（管理员用临时密码登录后） -->
       <div class="login-pane hidden" id="forcePane">
         <h3>修改密码</h3>
@@ -122,7 +130,7 @@
           </label>
           <p class="pw-meter hidden" id="forceMeter"><span></span></p>
           <p class="login-err hidden" id="forceErr"></p>
-          <button type="submit" class="btn btn-primary btn-block login-submit" id="btnForce">保存并进入</button>
+          <button type="submit" class="btn btn-primary btn-block login-submit" id="btnForce">保存新密码</button>
         </form>
       </div>
 

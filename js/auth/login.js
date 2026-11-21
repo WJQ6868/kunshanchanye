@@ -19,6 +19,7 @@
   var onDone = null;
   var bound = false;      // 登录成功后的回调（由 app.js 传入）
   var lastPw = '';        // 刚登录时输入的密码：远程模式强制改密要用它作「原密码」
+  var pendingMe = null;   // 等用户点「进入系统」的那个登录态
 
   function cache() {
     els.screen = $('#loginScreen');
@@ -54,6 +55,12 @@
     els.forceErr = $('#forceErr');
     els.btnForce = $('#btnForce');
     els.forceMeter = $('#forceMeter');
+
+    /* 「准备就绪」面板：验证通过后停在这里，等用户点按钮才进 */
+    els.enterPane = $('#enterPane');
+    els.enterSub = $('#enterSub');
+    els.enterWho = $('#enterWho');
+    els.btnEnter = $('#btnEnter');
   }
 
   /* ---------------- 小工具 ---------------- */
@@ -92,8 +99,10 @@
   function pane(which) {
     els.loginPane.classList.toggle('hidden', which !== 'login');
     els.forcePane.classList.toggle('hidden', which !== 'force');
+    if (els.enterPane) els.enterPane.classList.toggle('hidden', which !== 'enter');
     if (which === 'login') setTimeout(function () { els.loginUser && els.loginUser.focus(); }, 60);
     if (which === 'force') setTimeout(function () { els.forcePass && els.forcePass.focus(); }, 60);
+    if (which === 'enter') setTimeout(function () { els.btnEnter && els.btnEnter.focus(); }, 60);
   }
 
   /**
@@ -173,10 +182,17 @@
 
   /* ---------------- 进入应用 ---------------- */
 
+  /**
+   * 真正进入应用（把登录层收起来、把 #app 放出来）。
+   *
+   * 这是**唯一**会切换界面的地方，只能由用户点击「进入系统」按钮触发。
+   * 任何认证成功（登录 / 访客 / 改密 / 会话恢复）都先走 gateway()，
+   * 由用户自己点按钮再进来 —— 不再有「登录成功就自动跳转」。
+   */
   function enterApp(me) {
-    // 首次登录强制改密：先不让进
+    // 兜底：万一还有漏网的 mustChange 走到这里，先拦回去改密
     if (me && me.user && me.user.mustChange) {
-      pane('force');
+      showGateway(me, '首次登录需要先设置自己的密码');
       return;
     }
     if (els.screen) {
@@ -188,6 +204,35 @@
     if (typeof onDone === 'function') {
       try { onDone(me); } catch (e) { console.error('[RCLogin] 登录后回调异常', e); }
     }
+  }
+
+  /**
+   * 验证通过后的停靠点：算出该停在哪一屏，但**不自动进入**。
+   *
+   * @param {Object} me       登录态快照
+   * @param {string} [note]   显示在「准备就绪」面板上的补充说明
+   */
+  function showGateway(me, note) {
+    if (!me || !me.user) { pane('login'); return; }
+    pendingMe = me;
+
+    // 首次登录必须改密，改完也要再点一次按钮才进
+    if (me.user.mustChange) {
+      if (els.enterSub) els.enterSub.textContent = '已通过验证，点击下方按钮进入';
+      pane('force');
+      return;
+    }
+
+    if (els.enterSub) els.enterSub.textContent = note || '已通过验证，点击下方按钮进入';
+    if (els.enterWho) {
+      var name = me.user.displayName || me.user.login || '';
+      var role = me.user.roleLabel || '';
+      els.enterWho.textContent = name
+        ? ('当前账号：' + name + (role ? '（' + role + '）' : ''))
+        : '';
+    }
+    if (els.btnEnter) els.btnEnter.disabled = false;
+    pane('enter');
   }
 
   /* ---------------- 三个表单 ---------------- */
@@ -215,7 +260,7 @@
         // 登录成功才写「记住我」：失败的密码不该被记下来
         writeRemember(!!(els.chkRemember && els.chkRemember.checked), u, p);
         els.loginPass.value = '';
-        enterApp(r.me);
+        showGateway(r.me);
       }).catch(function (err) {
         busy(els.btnLogin, false);
         showErr(els.loginErr, '登录出错：' + (err && err.message || err));
@@ -253,6 +298,21 @@
       });
     }
 
+    /* 「进入系统」按钮：整站唯一切换界面的入口 */
+    if (els.btnEnter) {
+      els.btnEnter.addEventListener('click', function () {
+        var me = pendingMe || global.RCSession.me();
+        if (!me || !me.user) {
+          if (els.enterSub) els.enterSub.textContent = '登录状态已失效，请重新登录';
+          pendingMe = null;
+          pane('login');
+          return;
+        }
+        pendingMe = null;
+        enterApp(me);
+      });
+    }
+
     /* 教务一键登录：P3 才真正接入 IdP，现在如实告知「还没接」，
        不假装成功、也不把用户卡在一个假按钮上。 */
     if (els.btnSso) {
@@ -261,7 +321,7 @@
         busy(els.btnSso, true, '正在连接…');
         global.RCSession.signInWithProvider('sso').then(function (r) {
           busy(els.btnSso, false);
-          if (r && r.ok) { enterApp(r.me); return; }
+          if (r && r.ok) { showGateway(r.me); return; }
           showErr(els.ssoErr, (r && r.msg) || '教务单点登录暂不可用');
         }).catch(function (err) {
           busy(els.btnSso, false);
@@ -278,7 +338,7 @@
         global.RCSession.signInAsGuest().then(function (r) {
           busy(els.btnGuest, false);
           if (!r || !r.ok) { showErr(els.guestErr, (r && r.msg) || '访客登录失败'); return; }
-          enterApp(r.me);
+          showGateway(r.me);
         }).catch(function (err) {
           busy(els.btnGuest, false);
           showErr(els.guestErr, '进入出错：' + (err && err.message || err));
@@ -321,7 +381,8 @@
           els.forcePass.value = '';
           els.forcePass2.value = '';
           global.RCSession.refresh();
-          enterApp(global.RCSession.me());
+          // 改完不自动进，落在「准备就绪」，由用户点按钮
+          showGateway(global.RCSession.me(), '密码已更新，点击下方按钮进入');
         });
         return;
       }
@@ -335,7 +396,7 @@
         busy(els.btnForce, false);
         els.forcePass.value = '';
         els.forcePass2.value = '';
-        enterApp(r.me);
+        showGateway(r.me, '密码已更新，点击下方按钮进入');
       }).catch(function (err) {
         busy(els.btnForce, false);
         showErr(els.forceErr, err && err.message || String(err));
@@ -379,9 +440,13 @@
       bound = true;
     }
 
-    // 已登录（会话未过期）→ 直接进
+    // 会话还在（没退出、没过期）→ 不自动进，停在「准备就绪」等用户点按钮。
+    // 这是刻意的：用户要求「必须点按钮才进入下一个界面」，刷新页面不该直接跳。
     var me = global.RCSession.restore();
-    if (me) { enterApp(me); return; }
+    if (me) {
+      showGateway(me, '检测到上次的登录状态，点击下方按钮继续');
+      return;
+    }
 
     // 三种方式并列：账号密码是默认页，教务一键登录与访客登录各占一个并列入口。
     // 系统内置管理员由 auth-store / 服务端 seed 保证存在，不再有「首次使用创建管理员」面板。
@@ -396,6 +461,8 @@
   /** 登出：清会话 + 回到登录页（不刷新页面，避免动画状态丢失提示不友好） */
   function signOut() {
     global.RCSession.signOut();
+    pendingMe = null;
+    lastPw = '';
     if (els.app) els.app.hidden = true;
     if (els.screen) {
       els.screen.classList.remove('hidden', 'leaving');
@@ -411,5 +478,5 @@
     restoreRemember();
   }
 
-  global.RCLogin = { start: start, signOut: signOut, enterApp: enterApp };
+  global.RCLogin = { start: start, signOut: signOut, enterApp: enterApp, showGateway: showGateway };
 })(window);

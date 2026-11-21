@@ -39,6 +39,25 @@ function filterVisible(ctx: Ctx, list: Array<{ name: string }>): Array<{ name: s
   return list.filter((c) => ctx.canViewClass(c.name));
 }
 
+/**
+ * 「清空」护栏：把非空数据写成空，必须显式带 ?confirm=clear。
+ *
+ * 背景（2026-11-21 数据事故）：PUT /roster 与 PUT /classes 都是全量对账语义，
+ * 前端一次误发空数组就能把全班学生软删、所有班级归档。前端已经在
+ * setRoster/setClasses 里加了「本次启动没拿到服务端数据就不许写」的守卫，
+ * 但服务端不能只靠客户端自觉——这里再加一道，浏览器坏掉或被直接调接口时仍然安全。
+ */
+function assertClearAllowed(ctx: Ctx, nextEmpty: boolean, what: string): void {
+  if (!nextEmpty) return;
+  const confirm = String(ctx.query.get('confirm') || '');
+  if (confirm === 'clear') return;
+  throw err.badRequest(
+    '拒绝把' + what + '清空：这是一次全量覆盖写入，会把现有数据全部删除。'
+    + '如果确实要清空，请带上 confirm=clear 重新提交。',
+    { reason: 'CLEAR_NOT_CONFIRMED' },
+  );
+}
+
 export function registerClassRoutes(r: Router): void {
   /* ---------- 班级 ---------- */
 
@@ -57,6 +76,8 @@ export function registerClassRoutes(r: Router): void {
       throw err.forbidden('当前账号没有管理班级的权限');
     }
     const body = (ctx.body || {}) as { current?: unknown; list?: unknown };
+    // 空列表 = 归档全部班级，必须先显式确认
+    assertClearAllowed(ctx, !Array.isArray(body.list) || body.list.length === 0, '班级列表');
     const out = await replaceClasses(ctx, body);
     await ctx.audit('class.replace', {
       targetType: 'class',
@@ -78,6 +99,8 @@ export function registerClassRoutes(r: Router): void {
     if (!ctx.can('roster.import')) throw err.forbidden('当前账号没有导入名单的权限');
     // body 是学生数组本身（前端 setRoster 直接发数组）
     const list = Array.isArray(ctx.body) ? ctx.body : [];
+    // 空名单 = 软删全部学生，必须先显式确认
+    assertClearAllowed(ctx, list.length === 0, '名单');
     // 越权保护：讲师只能改自己任教班级的名单
     const scopes = ctx.classScopes();
     if (scopes !== null) {

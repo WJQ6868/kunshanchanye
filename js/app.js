@@ -319,6 +319,7 @@
     state.lastDraw = null;
     RCData.saveClasses({ current: n, list: state.classes });
     loadClassScores();
+    loadClassScoresFromServer();
     syncUndoBtn();
 
     AnimSpotlight.clearWinner();
@@ -791,7 +792,7 @@
     state.students = state.students.filter(function (s) {
       return RCScore.classKey(s) !== name;
     });
-    RCData.saveRoster(state.students);
+    RCData.saveRoster(state.students, { confirmClear: true });
     RCData.removeScores(name);
     delete state.pickedByClass[name];
     savePicked();
@@ -799,7 +800,8 @@
       state.currentClass = state.classes.length ? state.classes[0].name : '';
       loadClassScores();
     }
-    RCData.saveClasses({ current: state.currentClass, list: state.classes });
+    // 用户已经在上面的 confirm() 里确认过：删到空班级 / 空名单是预期结果
+    RCData.saveClasses({ current: state.currentClass, list: state.classes }, { confirmClear: true });
     renderHome();
     refreshAll();
     toast('已删除班级', 'ok');
@@ -852,8 +854,29 @@
     state.scores = { records: Array.isArray(d.records) ? d.records : [] };
   }
 
+  /**
+   * 从服务端拉当前班级的加分记录（远程模式）。
+   *
+   * 为什么必须在进班级时拉：服务端的 PUT 是对账语义，本地没有基线就提交，
+   * 会把该班历史分全部冲正。拉成功后再 refreshAll，界面分数才是真的。
+   */
+  function loadClassScoresFromServer() {
+    var cls = state.currentClass;
+    if (!cls || !RCData || typeof RCData.loadScoresFor !== 'function') return;
+    if (state.dataMode !== 'remote') return;
+    RCData.loadScoresFor(cls).then(function (r) {
+      if (!r || !r.ok) return;
+      if (state.currentClass !== cls) return; // 期间切了班，丢弃
+      loadClassScores();
+      refreshAll();
+    }).catch(function () { /* 离线时用缓存 */ });
+  }
+
   function saveScores() {
-    RCData.saveScores(state.currentClass, state.scores.records);
+    if (RCData.saveScores(state.currentClass, state.scores.records) === false) {
+      toast('加分记录没能保存到服务器：本页还没取到该班的记录，请刷新页面后重试', 'warn');
+      return;
+    }
   }
 
   /* -------------------- 多步撤销 -------------------- */
@@ -2375,7 +2398,8 @@
     state.currentClass = incomingClasses[0] || (state.classes[0] ? state.classes[0].name : '');
     loadClassScores();
 
-    RCData.saveRoster(state.students);
+    // 导入是「用户点按钮 + 看到结果」的显式动作，允许它改写名单（含删到空的情况）
+    RCData.saveRoster(state.students, { confirmClear: true });
     RCData.saveClasses({ current: state.currentClass, list: state.classes });
     savePicked();
 
@@ -3306,10 +3330,45 @@
 
     afterMeChanged();
 
+    /* 登录成功后再从服务端重拉一次名单与班级。
+       启动时的 bootstrap() 可能是在未登录状态下跑的（那时 /roster 会被 401 拒绝），
+       也可能拿到的是上一次的缓存；这里补一次，确保进到首页看到的是服务端的真实数据。
+       失败不影响使用：适配器会退回缓存，写守卫也会阻止把空名单提交上去。 */
+    try {
+      if (RCData && typeof RCData.reload === 'function') {
+        RCData.reload().then(function (r) {
+          if (!r || !r.ok) return;
+          try {
+            syncFromAdapter();
+            renderHome();
+            refreshAll();
+          } catch (e) { console.warn('[RC] 登录后重载失败', e); }
+        }).catch(function () { /* 离线时忽略 */ });
+      }
+    } catch (e) { console.warn('[RC] 登录后重拉数据失败', e); }
+
     // 教务名单读取入口：只有服务器模式才有意义（本机模式没有服务端）
     if (global.RCEduUI && typeof global.RCEduUI.start === 'function') {
       global.RCEduUI.start();
     }
+  }
+
+  /**
+   * 从适配器重读名单与班级，重建首页状态。
+   * reloadAfterEduSync() 与「登录成功后重拉」共用这一段。
+   */
+  function syncFromAdapter() {
+    state.students = RCData.loadRoster();
+    var cls = RCData.loadClasses();
+    state.classes = RCClasses.ensure(cls.list, state.students);
+    var names = state.classes.map(function (c) { return c.name; });
+    if (names.indexOf(state.currentClass) < 0) {
+      state.currentClass = names[0] || '';
+    }
+    loadClassScores();
+    state.selected = {};
+    state.lastDraw = null;
+    hideResult();
   }
 
   /**
@@ -3322,17 +3381,7 @@
     // 还是同步前那份内存缓存（曾导致「已读取 2 个班级」但首页 0 个班）。
     var done = function () {
       try {
-        state.students = RCData.loadRoster();
-        var cls = RCData.loadClasses();
-        state.classes = RCClasses.ensure(cls.list, state.students);
-        var names = state.classes.map(function (c) { return c.name; });
-        if (names.indexOf(state.currentClass) < 0) {
-          state.currentClass = names[0] || '';
-        }
-        loadClassScores();
-        state.selected = {};
-        state.lastDraw = null;
-        hideResult();
+        syncFromAdapter();
         renderHome();
         refreshAll();
         if (state.view === 'class' && state.currentClass) enterClass(state.currentClass);

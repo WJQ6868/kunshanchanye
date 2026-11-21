@@ -62,6 +62,19 @@ export function registerScoreRoutes(r: Router): void {
     if (!canAny) throw err.forbidden('当前账号没有加减分的权限');
 
     const body = (ctx.body || {}) as { records?: unknown };
+    // 空列表同样是「全量对账」的一种：它会把该班所有还在生效的记录冲正。
+    // 和 PUT /roster、PUT /classes 一样，必须显式 confirm=clear。
+    const incoming = Array.isArray(body.records) ? body.records : [];
+    if (incoming.length === 0) {
+      const confirm = String(ctx.query.get('confirm') || '');
+      if (confirm !== 'clear') {
+        throw err.badRequest(
+          '拒绝清空「' + name + '」的加分记录：提交空列表会把该班全部记录冲正。'
+          + '如果确实要清空，请改用 DELETE 或用 clear=true 的明确操作。',
+          { reason: 'CLEAR_NOT_CONFIRMED' },
+        );
+      }
+    }
     const out = await replaceScores(ctx, name, body);
     return json(200, { records: out.records });
   });

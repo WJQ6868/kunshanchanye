@@ -306,12 +306,21 @@
     loadState: function () { assertReady(); return adapter.getState(); },
     loadHistory: function () { assertReady(); return adapter.getHistory(); },
     listScoreClasses: function () { assertReady(); return adapter.listScoreClasses(); },
+    /**
+     * 从服务端拉某班加分记录进缓存（远程模式）。
+     * 本机模式数据本来就在本地，直接返回当前记录即可。
+     */
+    loadScoresFor: function (cls) {
+      assertReady();
+      if (typeof adapter.loadScoresFor === 'function') return adapter.loadScoresFor(cls);
+      return Promise.resolve({ ok: true, records: adapter.getScores(cls).records });
+    },
 
     /* ---------- 写接口 ---------- */
 
-    saveRoster: function (list) { assertReady(); return adapter.setRoster(list); },
-    saveClasses: function (c) { assertReady(); return adapter.setClasses(c); },
-    saveScores: function (cls, recs) { assertReady(); return adapter.setScores(cls, recs); },
+    saveRoster: function (list, opt) { assertReady(); return adapter.setRoster(list, opt); },
+    saveClasses: function (c, opt) { assertReady(); return adapter.setClasses(c, opt); },
+    saveScores: function (cls, recs, opt) { assertReady(); return adapter.setScores(cls, recs, opt); },
     saveSettings: function (s) { assertReady(); return adapter.setSettings(s); },
     saveState: function (s) { assertReady(); return adapter.setState(s); },
     saveHistory: function (list) { assertReady(); return adapter.setHistory(list); },

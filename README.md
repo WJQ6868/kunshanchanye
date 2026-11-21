@@ -387,6 +387,24 @@
 
 **远程模式的离线队列**：写操作先落内存缓存与本地副本，同时把请求塞进 `rollcall.queue.v1` 队列（带 `Idempotency-Key`）。网络恢复、页面重新可见、启动 0.8s 后都会自动补传；服务端靠幂等键去重，不会重复加分。4xx 视为数据本身有问题直接丢弃并记录，5xx 与网络错误保留重试。
 
+### 启动时的数据基线（重要）
+
+远程模式不只是「连上就行」，启动与登录时必须把**成绩单等全量数据先拉下来当基线**，否则后续写入会按「对账」语义把服务端数据冲掉。当前实现：
+
+| 数据 | 什么时候拉 | 缺了会怎样 |
+| --- | --- | --- |
+| 名单 `/roster` | `bootstrap()` 与登录后的 `reload()` | 缓存为空 → 页面上任何导入/改班名/删班都会把空名单提交上去，清空全部学生 |
+| 班级 `/classes` | `bootstrap()` 与 `reload()` | 同上，班级被归档 |
+| 加分 `/classes/:name/scores` | `bootstrap()` 与 `reload()` 对每个班逐个拉，进入班级时再补拉一次 | 缓存为空 → 加一次分就把该班历史记录全部冲正 |
+
+**三重写守卫**（三处独立生效，任一处能拦住就不会丢数据）：
+
+1. **前端适配器**：`js/data/adapter-remote.js` 的 `canWriteRoster` / `setClasses` / `canWriteScores` 在「本次会话没成功拉到基线」时直接拒绝写入，只 `console.error` 并 `emit` 一个 `*Rejected` 事件，返回值是 `false`，UI 弹提示「请刷新页面后重试」。
+2. **门面透传**：`saveRoster(list, opt)` / `saveClasses(c, opt)` / `saveScores(cls, recs, opt)` 把 `opt` 一路传给适配器，`opt.confirmClear === true` 表示调用方（用户已在 `confirm()` 里确认过）明确要清空。
+3. **服务端**：`PUT /roster`、`PUT /classes`、`PUT /classes/:name/scores` 收到**空列表**时一律返回 400，详情 `{"reason":"CLEAR_NOT_CONFIRMED"}`；只有带 `?confirm=clear` 才放行。清空加分也可以直接用 `DELETE /classes/:name/scores`。
+
+**清空数据的影响面**：设置页「清空」按钮（`RCData.wipe()`）只清**浏览器本地缓存**，不发任何请求，服务端数据不受影响。
+
 ---
 
 ## 账号与权限（P1）
@@ -405,6 +423,18 @@
 密码**只以哈希形式存在**：服务端是 scrypt（`rollcall/server/src/auth/seed.ts` 里的 `DEFAULT_ADMIN_PASSWORD_HASH`），本机模式是 PBKDF2（`rollcall/js/auth/auth-store.js` 里的 `DEFAULT_ADMIN.pw`）。明文既不写进前端代码，也不写进仓库和启动日志。校验脚本：`node rollcall/tools/verify-admin-hash.mjs`。
 
 登录后请到「账号 → 修改密码」换成自己的密码。`seed` 只在账号不存在时创建，改过的密码不会被重启重置；`ensureDefaultAdmin()` 同样只补缺、不覆盖。
+
+### 登录之后要点一下才进（P0 修订）
+
+登录成功、改完密码、刷新页面这三种情况，系统都**不会自己跳进主界面**，而是停在一个「准备就绪」的面板：
+
+| 触发场景 | 面板提示 |
+| --- | --- |
+| 账号密码 / 访客 / SSO 登录成功 | 已通过验证，点击下方按钮进入 |
+| 强制改密保存成功 | 密码已更新，点击下方按钮进入 |
+| 刷新页面、会话仍然有效 | 检测到上次的登录状态，点击下方按钮继续 |
+
+面板上显示当前账号（姓名 + 角色），点「进入系统」才收起登录层。这样做的原因：课堂上换人用电脑时，不会因为浏览器还留着上一个人的会话就直接进到别人的界面里；也避免登录请求刚返回、页面还没稳就跳转，导致首屏数据还没加载完。
 
 ### 三种登录方式
 
@@ -544,6 +574,8 @@ node src/index.ts         # Node 24 直接跑 TS，无需编译
 响应统一带 `X-Request-Id`；错误体 `{code, message, details}`；写请求要求 `X-CSRF-Token`（双提交，`rc_csrf` cookie 非 HttpOnly 供前端读）；会话空闲 30 分钟、绝对 12 小时，单用户并发上限 5。
 
 **加分写入是「对账」语义**：前端把本班全部记录当真相 `PUT` 上来，服务端逐条比对——已存在且值未变则跳过，值变了则冲正旧行再插新行，不存在则新增。所以重复发送同一批记录不会重复加分，断网重放安全。
+
+正因为是对账语义，**提交空列表等于「把这一班的记录全部冲正」**。为此加了空列表护栏：`PUT /classes/:name/scores` 收到空数组时返回 400（`details.reason = CLEAR_NOT_CONFIRMED`），要真清空得带 `?confirm=clear` 或改用 `DELETE /classes/:name/scores`。前端对应地加了「基线未加载不许写」的守卫，见上文「启动时的数据基线」。
 
 ### 教务名单一键读取
 

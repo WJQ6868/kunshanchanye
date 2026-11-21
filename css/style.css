@@ -2943,8 +2943,16 @@ textarea::placeholder { color: var(--text-faint); }
 }
 .preview-row.history-row .sub:last-child { white-space: nowrap; text-align: right; }
 
-/* 加分记录导出行 */
-.preview-row.export-row { grid-template-columns: 20px minmax(0, 1fr) auto auto; }
+/* 导出弹窗 */
+.export-desc {
+  margin: 8px 0 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+#exportKind .pill, #exportScope .pill { flex: 0 0 auto; }
+
+.modal-sm .preview-list { max-height: 30vh; }
 
 .preview-empty { padding: 26px; text-align: center; color: var(--text-faint); font-size: 13px; }
 
@@ -4409,7 +4417,7 @@ html[data-theme="blue"] .gc-icon {
   .wb-top3-label { display: none; }
   .wb-top3-wrap { min-width: 0; }
   .top3-chip { max-width: 34vw; }
-  #btnClassSheet { padding: 6px 10px; font-size: 12px; }
+  #btnExportOpen { padding: 6px 10px; font-size: 12px; }
 
   /* 学生名单头 + 随机点名 */
   .roster-head { gap: 8px; }

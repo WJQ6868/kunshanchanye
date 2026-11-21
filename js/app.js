@@ -56,6 +56,8 @@
     pendingView: '',       // 刷新后要恢复的页面：init() 记下，登录态就绪后由 afterMeChanged() 消费
     dataMode: 'local',     // 数据源：'local' | 'remote'
     dataReason: '',        // 数据源判定原因（用于角标与设置页展示）
+    exportKind: 'sheet',   // 导出弹窗选中的内容：'sheet'（学生分数表）| 'records'（分数详情）| 'csv'（点名记录）
+    exportScope: 'class',  // 导出弹窗选中的范围：'class'（本班）| 'all'（全部班级）
     me: null               // 当前用户与权限（远程模式有值）
   };
 
@@ -175,6 +177,11 @@
       panelSum: $('#panelSum'),
       exportList: $('#exportList'),
       exportHint: $('#exportHint'),
+      exportKind: $('#exportKind'),
+      exportScope: $('#exportScope'),
+      exportScopeField: $('#exportScopeField'),
+      exportDesc: $('#exportDesc'),
+      btnExportRun: $('#btnExportRun'),
       // 当前学生（面板内联，替代原详情弹窗）
       focusCard: $('#focusCard'),
       focusName: $('#focusName'),
@@ -1098,17 +1105,15 @@
     var ra = $('#btnRankExportAvg');
     if (ra) ra.addEventListener('click', function () { exportRank('avg'); });
 
-    // 导出本班表格
-    $('#btnClassSheet').addEventListener('click', function () {
-      if (!state.currentClass) { toast('先选一个班级', 'warn'); return; }
-      exportClassSheet(state.currentClass);
-    });
+    // 导出（班级页唯一的导出入口，弹窗里再选内容与范围）
+    var exportOpen = $('#btnExportOpen');
+    if (exportOpen) exportOpen.addEventListener('click', openExport);
     $('#btnExportAllClasses').addEventListener('click', function () {
-      var names = state.classes.map(function (c) { return c.name; });
-      RCData.listScoreClasses().forEach(function (c) {
-        if (names.indexOf(c) < 0) names.push(c);
-      });
-      exportScoresFor(names);
+      if (!guard('export.school', '当前账号没有导出全校表格的权限')) return;
+      state.exportKind = 'sheet';
+      state.exportScope = 'all';
+      renderExportPanel();
+      showModal(els.exportModal);
     });
 
     // 抽取
@@ -1267,8 +1272,12 @@
     });
     $('#btnReset').addEventListener('click', resetRound);
     if (els.btnUndoOp) els.btnUndoOp.addEventListener('click', undoStep);
-    $('#btnExport').addEventListener('click', exportCSV);
-    $('#btnExport2').addEventListener('click', exportCSV);
+    $('#btnExport2').addEventListener('click', function () {
+      // 抽取记录弹窗里不再自己导 CSV，统一走「⤓ 导出」弹窗，避免两处口径不一样
+      state.exportKind = 'csv';
+      hideModal(els.historyModal);
+      openExport();
+    });
     $('#btnClearHistory').addEventListener('click', function () {
       if (!state.history.length) { toast('没有记录'); return; }
       state.history = [];
@@ -1383,11 +1392,6 @@
       toast('已删除一条加分记录', 'ok');
     });
 
-    $('#btnExportScores').addEventListener('click', function () {
-      if (!state.currentClass) { toast('先选一个班级', 'warn'); return; }
-      exportRecordsFor([state.currentClass]);
-    });
-
     /* ---------- 右侧「当前学生」卡片（替代原详情弹窗） ---------- */
 
     if (els.btnFocusPick) {
@@ -1439,18 +1443,23 @@
 
     /* ---------- 导出弹窗 ---------- */
 
-    $('#btnExportAll').addEventListener('click', function () {
-      var names = state.classes.map(function (c) { return c.name; });
-      RCData.listScoreClasses().forEach(function (c) {
-        if (names.indexOf(c) < 0) names.push(c);
-      });
-      exportScoresFor(names);
+    els.exportKind.addEventListener('click', function (e) {
+      var b = e.target.closest('.pill');
+      if (!b || !b.dataset.kind) return;
+      state.exportKind = b.dataset.kind;
+      renderExportPanel();
     });
-    els.exportList.addEventListener('click', function (e) {
-      var b = e.target.closest('.export-one');
-      if (!b) return;
-      exportScoresFor([b.dataset.cls === '\u0000' ? '' : b.dataset.cls]);
+    els.exportScope.addEventListener('click', function (e) {
+      var b = e.target.closest('.pill');
+      if (!b || !b.dataset.scope) return;
+      if (b.classList.contains('perm-off')) {
+        toast('还没进班级，只能导出全部班级', 'warn');
+        return;
+      }
+      state.exportScope = b.dataset.scope;
+      renderExportPanel();
     });
+    els.btnExportRun.addEventListener('click', runExport);
 
     // 键盘
     document.addEventListener('keydown', function (e) {
@@ -2449,10 +2458,159 @@
     els.historyList.appendChild(frag);
   }
 
-  function exportCSV() {
-    if (!guard('record.view_class', '当前账号没有导出记录的权限')) return;
-    if (!state.history.length) { toast('没有可导出的记录', 'warn'); return; }
+  /* -------------------- 导出（统一弹窗） -------------------- */
 
+  /**
+   * 导出的三种内容。原来它们是散在页面上的四个按钮（顶栏「导出本班分数表」、
+   * 加分记录面板底部「导出分数详情记录表」、控制条 ⤓、抽取记录弹窗里的「导出 CSV」），
+   * 点错地方出来的表还不一样。现在统一收敛到一个弹窗：先选内容，再选范围。
+   */
+  var EXPORT_KINDS = {
+    sheet: {
+      name: '学生分数表',
+      desc: '一行一个学生：姓名、学号、班级、加分次数、总分。没加过分的学生也在表里，记 0 分。表头冻结、带边框，可直接打印。',
+      need: 'export.class'
+    },
+    records: {
+      name: '分数详情记录表',
+      desc: '一行一次操作：时间、操作人、学生、班级、分值、原因。想核对「谁在什么时候加了分」用这个。',
+      need: 'export.class'
+    },
+    csv: {
+      name: '点名抽取记录',
+      desc: '本机保存的点名历史：序号、姓名、学号、班级/分组、时间、动画。只含这台设备上抽过的人，不是全班名单。',
+      need: 'record.view_class'
+    }
+  };
+
+  /** 当前可选的全部班级名（名单里的 + 历史记录里残留的） */
+  function exportClassNames() {
+    var names = state.classes.map(function (c) { return c.name; });
+    RCData.listScoreClasses().forEach(function (c) {
+      if (names.indexOf(c) < 0) names.push(c);
+    });
+    return names;
+  }
+
+  /** 当前是否停在某个班级页（'' 是「未分班」，也是合法班级，不能拿 truthy 判断） */
+  function inClassView() {
+    return state.view === 'class';
+  }
+
+  /**
+   * 本次导出实际生效的范围。
+   * state.exportScope 记的是用户的选择，这里按当前场景修正：
+   * 点名记录是本机历史、跟班级无关；不在班级页时也只能导全部班级。
+   * 这样从「点名记录」切回「学生分数表」时，用户原来选的「本班」还能回来。
+   */
+  function effectiveScope(kind) {
+    if (kind === 'csv') return 'all';
+    if (!inClassView()) return 'all';
+    return state.exportScope === 'all' ? 'all' : 'class';
+  }
+
+  /** 当前范围下要导出的班级列表 */
+  function exportTargets(kind) {
+    if (effectiveScope(kind || state.exportKind) === 'class') {
+      return [state.currentClass];
+    }
+    return exportClassNames();
+  }
+
+  /** 按内容 + 范围刷新弹窗里的说明、班级预览和底部提示 */
+  function renderExportPanel() {
+    var kind = EXPORT_KINDS[state.exportKind] ? state.exportKind : 'sheet';
+    var meta = EXPORT_KINDS[kind];
+
+    els.exportDesc.textContent = meta.desc;
+
+    $$('#exportKind .pill').forEach(function (b) {
+      b.classList.toggle('active', b.dataset.kind === kind);
+    });
+
+    // 点名记录是本机历史，跟班级范围无关，藏掉范围选择
+    var scopeable = kind !== 'csv';
+    els.exportScopeField.classList.toggle('hidden', !scopeable);
+
+    var hasClass = inClassView();
+    var scopeNow = effectiveScope(kind);
+    $$('#exportScope .pill').forEach(function (b) {
+      var isClass = b.dataset.scope === 'class';
+      b.classList.toggle('active', b.dataset.scope === scopeNow);
+      b.classList.toggle('perm-off', isClass && !hasClass);
+      b.title = (isClass && !hasClass) ? '还没进班级，只能导出全部班级' : '';
+    });
+
+    // 班级预览
+    var rows;
+    if (kind === 'csv') {
+      rows = [];
+    } else {
+      var targets = exportTargets(kind);
+      rows = targets.map(function (c) {
+        var people = RCClasses.studentsOf(c, state.students).length;
+        var count = RCData.loadScores(c).records.length;
+        return { cls: c, people: people, count: count };
+      }).filter(function (r) {
+        // 分数表要有人，记录表要有记录，否则导出来是空表
+        return kind === 'sheet' ? r.people > 0 : r.count > 0;
+      });
+    }
+
+    els.exportList.innerHTML = '';
+    if (kind === 'csv') {
+      var n = state.history.length;
+      if (!n) {
+        els.exportList.innerHTML = '<div class="preview-empty">这台设备还没有点名记录</div>';
+      } else {
+        var recent = state.history.slice(-5).reverse();
+        var fragC = document.createDocumentFragment();
+        recent.forEach(function (h) {
+          var row = document.createElement('div');
+          row.className = 'preview-row';
+          row.innerHTML = '<span class="idx">·</span><span class="nm"></span><span class="sub"></span><span class="sub" style="text-align:right"></span>';
+          row.querySelector('.nm').textContent = h.name || '—';
+          row.querySelectorAll('.sub')[0].textContent = [h.id, h.group].filter(Boolean).join(' · ');
+          row.querySelectorAll('.sub')[1].textContent = fmtTime(h.t);
+          fragC.appendChild(row);
+        });
+        els.exportList.appendChild(fragC);
+      }
+      els.exportHint.textContent = n ? n + ' 条记录（只显示最近 5 条）' : '';
+    } else if (!rows.length) {
+      els.exportList.innerHTML = '<div class="preview-empty">' +
+        (kind === 'sheet' ? '选中的范围里还没有学生名单' : '选中的范围里还没有加分记录') + '</div>';
+      els.exportHint.textContent = '';
+    } else {
+      var frag = document.createDocumentFragment();
+      rows.forEach(function (r) {
+        var row = document.createElement('div');
+        row.className = 'preview-row';
+        row.innerHTML = '<span class="idx">·</span><span class="nm"></span><span class="sub"></span><span class="sub" style="text-align:right"></span>';
+        row.querySelector('.nm').textContent = RCScore.classLabel(r.cls);
+        row.querySelectorAll('.sub')[0].textContent = r.people + ' 人';
+        row.querySelectorAll('.sub')[1].textContent = r.count + ' 条';
+        frag.appendChild(row);
+      });
+      els.exportList.appendChild(frag);
+      var totalPeople = rows.reduce(function (a, b) { return a + b.people; }, 0);
+      var totalRec = rows.reduce(function (a, b) { return a + b.count; }, 0);
+      els.exportHint.textContent = rows.length + ' 个班级 · ' + totalPeople + ' 名学生 · ' + totalRec + ' 条记录';
+    }
+
+    // 没权限时把「导出」按钮置灰，而不是点了才报错
+    var allowed = canDo(meta.need) && (scopeNow !== 'all' || kind === 'csv' || canDo('export.school'));
+    els.btnExportRun.classList.toggle('perm-off', !allowed);
+  }
+
+  /** 打开导出弹窗。没指定就沿用上次的选择。 */
+  function openExport() {
+    renderExportPanel();
+    showModal(els.exportModal);
+  }
+
+  /** 点名抽取记录 → CSV 文本（含 BOM） */
+  function buildHistoryCSV() {
     var rows = [['序号', '姓名', '学号', '班级/分组', '时间', '动画']];
     state.history.forEach(function (h, i) {
       rows.push([
@@ -2472,8 +2630,15 @@
       }).join(',');
     }).join('\r\n');
 
-    // 加 BOM 让 Excel 正确识别 UTF-8
-    var blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    return '\uFEFF' + csv;
+  }
+
+  /** 导出点名抽取记录（CSV，Excel 双击可开） */
+  function exportHistoryCSV() {
+    if (!guard('record.view_class', '当前账号没有导出记录的权限')) return false;
+    if (!state.history.length) { toast('没有可导出的记录', 'warn'); return false; }
+
+    var blob = new Blob([buildHistoryCSV()], { type: 'text/csv;charset=utf-8;' });
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     var d = new Date();
@@ -2488,86 +2653,16 @@
     document.body.removeChild(a);
     setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
     toast('已导出 ' + state.history.length + ' 条记录', 'ok');
+    return true;
   }
 
-  /* -------------------- 加分记录导出 -------------------- */
-
-  function openExport() {
-    var classes = state.classes.map(function (c) { return c.name; });
-    // 也把历史里存过记录、但名单里已经没有的班级列出来
-    RCData.listScoreClasses().forEach(function (c) {
-      if (classes.indexOf(c) < 0) classes.push(c);
-    });
-
-    // 全部班级都列出来：没加过分的学生同样要能导出（标 0 分）
-    var rows = classes.map(function (c) {
-      var students = RCClasses.studentsOf(c, state.students);
-      return { cls: c, count: RCData.loadScores(c).records.length, people: students.length };
-    }).filter(function (r) { return r.people > 0 || r.count > 0; });
-
-    els.exportList.innerHTML = '';
-    if (!rows.length) {
-      els.exportList.innerHTML = '<div class="preview-empty">还没有任何班级名单</div>';
-      els.exportHint.textContent = '';
-      els.exportHint.dataset.cls = '';
-      showModal(els.exportModal);
-      return;
-    }
-
-    var frag = document.createDocumentFragment();
-    rows.forEach(function (r) {
-      var row = document.createElement('div');
-      row.className = 'preview-row export-row';
-      row.innerHTML =
-        '<span class="idx">·</span>' +
-        '<span class="nm"></span>' +
-        '<span class="sub"></span>' +
-        '<button class="btn btn-ghost btn-mini export-one">导出</button>';
-      row.querySelector('.nm').textContent = RCScore.classLabel(r.cls);
-      row.querySelector('.sub').textContent = r.people + ' 人 · ' + r.count + ' 条';
-      row.querySelector('.export-one').dataset.cls = r.cls === '' ? '\u0000' : r.cls;
-      frag.appendChild(row);
-    });
-    els.exportList.appendChild(frag);
-
-    var totalPeople = rows.reduce(function (a, b) { return a + b.people; }, 0);
-    els.exportHint.textContent = rows.length + ' 个班级 · ' + totalPeople + ' 名学生';
-    showModal(els.exportModal);
-  }
-
-  /** 组一个班级的导出任务（全班学生，含未加分者） */
+  /** 组一个班级的「学生分数表」导出任务（全班学生，含未加分者） */
   function sheetJobFor(className) {
     return {
       className: className,
       students: RCClasses.studentsOf(className, state.students),
       records: RCData.loadScores(className).records
     };
-  }
-
-  /**
-   * 导出学生分数表（Excel）。
-   * 单个班级 → 一个文件一个 sheet；多个班级 → 一个文件每班一个 sheet。
-   */
-  function exportScoresFor(classList) {
-    if (!guard('export.class', '当前账号没有导出班级表格的权限')) return;
-    if (!global.RCExportSheet) { toast('导出组件未加载，请刷新页面', 'warn'); return; }
-    if (!classList || !classList.length) {
-      toast('没有可导出的班级', 'warn');
-      return;
-    }
-
-    var jobs = classList.map(sheetJobFor).filter(function (j) { return j.students.length > 0; });
-    if (!jobs.length) {
-      toast('这些班级还没有学生名单', 'warn');
-      return;
-    }
-
-    var out = RCExportSheet.buildWorkbook(jobs);
-    if (!out) { toast('没有可导出的学生', 'warn'); return; }
-
-    RCExportSheet.download(out.bytes, out.filename);
-    hideModal(els.exportModal);
-    toast('已导出 ' + out.filename + '（' + out.sheetCount + ' 个班）', 'ok');
   }
 
   /** 组一个班级的「分数详情记录」导出任务（一行 = 一次操作） */
@@ -2579,24 +2674,60 @@
   }
 
   /**
-   * 导出「分数详情记录表」（Excel）。
-   * 与 exportScoresFor 的分工：那个是每人一行的汇总，这个是一次操作一行的流水。
-   * 列：时间 / 操作人 / 学生 / 班级 / 分值 / 原因
+   * 导出学生分数表（Excel）。
+   * 单个班级 → 一个文件一个 sheet；多个班级 → 一个文件每班一个 sheet。
    */
-  function exportRecordsFor(classList) {
-    if (!guard('export.class', '当前账号没有导出班级表格的权限')) return;
-    if (!global.RCExportSheet) { toast('导出组件未加载，请刷新页面', 'warn'); return; }
-    if (!classList || !classList.length) { toast('没有可导出的班级', 'warn'); return; }
+  function exportScoresFor(classList) {
+    if (!guard('export.class', '当前账号没有导出班级表格的权限')) return false;
+    if (!global.RCExportSheet) { toast('导出组件未加载，请刷新页面', 'warn'); return false; }
+    if (!classList || !classList.length) { toast('没有可导出的班级', 'warn'); return false; }
 
-    var jobs = classList.map(recordsJobFor).filter(function (j) { return j.records.length > 0; });
-    if (!jobs.length) { toast('这些班级还没有加分记录', 'warn'); return; }
+    var jobs = classList.map(sheetJobFor).filter(function (j) { return j.students.length > 0; });
+    if (!jobs.length) { toast('这些班级还没有学生名单', 'warn'); return false; }
 
-    var out = RCExportSheet.buildRecordsWorkbook(jobs);
-    if (!out) { toast('没有可导出的记录', 'warn'); return; }
+    var out = RCExportSheet.buildWorkbook(jobs);
+    if (!out) { toast('没有可导出的学生', 'warn'); return false; }
 
     RCExportSheet.download(out.bytes, out.filename);
-    hideModal(els.exportModal);
     toast('已导出 ' + out.filename + '（' + out.sheetCount + ' 个班）', 'ok');
+    return true;
+  }
+
+  /**
+   * 导出「分数详情记录表」（Excel）。
+   * 与 exportScoresFor 的分工：那个是每人一行的汇总，这个是一次操作一行的流水。
+   */
+  function exportRecordsFor(classList) {
+    if (!guard('export.class', '当前账号没有导出班级表格的权限')) return false;
+    if (!global.RCExportSheet) { toast('导出组件未加载，请刷新页面', 'warn'); return false; }
+    if (!classList || !classList.length) { toast('没有可导出的班级', 'warn'); return false; }
+
+    var jobs = classList.map(recordsJobFor).filter(function (j) { return j.records.length > 0; });
+    if (!jobs.length) { toast('这些班级还没有加分记录', 'warn'); return false; }
+
+    var out = RCExportSheet.buildRecordsWorkbook(jobs);
+    if (!out) { toast('没有可导出的记录', 'warn'); return false; }
+
+    RCExportSheet.download(out.bytes, out.filename);
+    toast('已导出 ' + out.filename + '（' + out.sheetCount + ' 个班）', 'ok');
+    return true;
+  }
+
+  /** 弹窗里点「导出」：按选中的内容分发 */
+  function runExport() {
+    var kind = state.exportKind;
+    var scopeNow = effectiveScope(kind);
+    var done = false;
+
+    if (kind === 'csv') {
+      done = exportHistoryCSV();
+    } else {
+      if (scopeNow === 'all' && !guard('export.school', '当前账号没有导出全校表格的权限')) return;
+      var targets = exportTargets(kind);
+      done = kind === 'records' ? exportRecordsFor(targets) : exportScoresFor(targets);
+    }
+
+    if (done) hideModal(els.exportModal);
   }
 
   /* -------------------- 小工具 -------------------- */
@@ -3019,7 +3150,11 @@
 
   /* -------------------- 导出本班表格 -------------------- */
 
-  /** 本班学生分数表（Excel）：序号 / 姓名 / 学号 / 班级 / 加分次数 / 总分 */
+  /**
+   * 本班学生分数表（Excel）：序号 / 姓名 / 学号 / 班级 / 加分次数 / 总分。
+   * 现在界面上没有单独入口了（统一走「⤓ 导出」弹窗），保留这个函数是给
+   * window.RC 的外部调用与老脚本用的，语义不变：直接导出指定班级。
+   */
   function exportClassSheet(name) {
     if (!guard('export.class', '当前账号没有导出班级表格的权限')) return;
     exportScoresFor([name]);
@@ -3194,10 +3329,8 @@
     ['#btnRankExportCls', 'export.rank', 'off'],
     ['#btnRankExportAvg', 'export.rank', 'off'],
     ['#homeTabs [data-tab="rank"]', 'export.rank', 'hide'],
-    ['#btnClassSheet', 'export.class', 'off'],
+    ['#btnExportOpen', 'record.view_class', 'off'],
     ['#btnExportAllClasses', 'export.school', 'hide'],
-    ['#btnExportScores', 'export.class', 'off'],
-    ['#btnExport', 'record.view_class', 'off'],
     ['#btnReset', 'draw.reset', 'off'],
     ['#btnUndoOp', 'score.void', 'off'],
     ['#btnDraw', 'draw.random', 'off'],
@@ -3231,7 +3364,7 @@
    */
   function applyVisitorLocks() {
     var viewer = isViewer();
-    ['#btnRankExport', '#btnRankExportCls', '#btnRankExportAvg', '#btnClassSheet', '#btnExportScores', '#btnExportAllClasses', '#btnExport'].forEach(function (sel) {
+    ['#btnRankExport', '#btnRankExportCls', '#btnRankExportAvg', '#btnExportOpen', '#btnExportAllClasses'].forEach(function (sel) {
       $$(sel).forEach(function (el) {
         el.classList.toggle('perm-off', viewer);
       });
@@ -3569,6 +3702,7 @@
     renderStuRank: renderStuRank,
     renderClsRank: renderClsRank,
     exportClassSheet: exportClassSheet,
+    openExport: openExport,
     exportRank: exportRank,
     cycleTheme: cycleTheme,
     classTopN: classTopN,

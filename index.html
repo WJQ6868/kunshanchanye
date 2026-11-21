@@ -342,7 +342,7 @@
         <div class="top3" id="wbTop3"></div>
       </div>
       <span class="spacer"></span>
-      <button class="btn btn-ghost btn-mini" id="btnClassSheet">⤓ 导出本班分数表</button>
+      <button class="btn btn-ghost btn-mini" id="btnExportOpen">⤓ 导出</button>
     </div>
 
     <!-- 非任教班级：只读提示条（加减分按钮置灰） -->
@@ -534,9 +534,6 @@
               <span class="panel-count" id="panelRecCount">0 条</span>
             </div>
             <div class="score-log" id="scoreLog"></div>
-            <div class="panel-block-foot">
-              <button class="btn btn-ghost btn-mini" id="btnExportScores">导出分数详情记录表</button>
-            </div>
           </section>
 
         </div>
@@ -574,7 +571,6 @@
         <button class="icon-btn" id="btnUndoOp" title="撤销上一步（Ctrl+Z）" disabled>↶</button>
         <button class="icon-btn" id="btnReset" title="重置本轮（R）">↺</button>
         <button class="icon-btn" id="btnHistory" title="抽取记录">🕘</button>
-        <button class="icon-btn" id="btnExport" title="导出抽取记录 CSV">⤓</button>
       </div>
     </footer>
 
@@ -716,26 +712,41 @@
     <div class="modal-foot">
       <button class="btn btn-ghost" id="btnClearHistory">清空记录</button>
       <span class="spacer"></span>
-      <button class="btn btn-primary" id="btnExport2">导出 CSV</button>
+      <button class="btn btn-primary" id="btnExport2">导出记录</button>
     </div>
   </div>
 </div>
 
-<!-- ============ 加分记录导出弹窗 ============ -->
+<!-- ============ 导出弹窗（班级页唯一的导出入口） ============ -->
 <div class="modal" id="exportModal">
   <div class="modal-box modal-sm">
     <div class="modal-head">
-      <h3>导出学生分数表</h3>
+      <h3>导出</h3>
       <button class="icon-btn" data-close>✕</button>
     </div>
     <div class="modal-body">
-      <p class="muted">生成 Excel 表格（.xlsx），一行一个学生：姓名、学号、班级、加分次数、总分。没加过分的学生也会出现在表里，记 0 分。表头已冻结、带边框，可直接打印。文件名形如「一班_学生分数表_2026-11-19.xlsx」；全部导出时每个班一个工作表（sheet），只下载一个文件。</p>
+      <div class="field">
+        <span class="field-label">导出内容</span>
+        <div class="pill-group" id="exportKind">
+          <button class="pill active" data-kind="sheet">学生分数表</button>
+          <button class="pill" data-kind="records">分数详情记录表</button>
+          <button class="pill" data-kind="csv">点名抽取记录</button>
+        </div>
+        <p class="muted export-desc" id="exportDesc"></p>
+      </div>
+      <div class="field" id="exportScopeField">
+        <span class="field-label">导出范围</span>
+        <div class="pill-group" id="exportScope">
+          <button class="pill active" data-scope="class">本班</button>
+          <button class="pill" data-scope="all">全部班级</button>
+        </div>
+      </div>
       <div class="preview-list" id="exportList"></div>
     </div>
     <div class="modal-foot">
       <span class="hint" id="exportHint"></span>
       <span class="spacer"></span>
-      <button class="btn btn-primary" id="btnExportAll">全部导出</button>
+      <button class="btn btn-primary" id="btnExportRun">导出</button>
     </div>
   </div>
 </div>

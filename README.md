@@ -16,6 +16,14 @@
 
 没有现成表格时，首页直接 **＋ 新建班级**，再进班级里手动录入。
 
+### 要跑服务端（多台电脑共享名单）
+
+```bash
+./start.sh     # 启动；./status.sh 看状态；./stop.sh 停止；./restart.sh 重启
+```
+
+脚本会自动判断这台机器是走 `systemd`（生产机）还是 `nohup`（临时测试），启动后必须通过健康检查才算成功。细节见下方「服务端」章节里的**一键启停**。
+
 ---
 
 ## 信息架构
@@ -655,6 +663,37 @@ node src/index.ts         # Node 24 直接跑 TS，无需编译
 
 浏览器打开 `http://127.0.0.1:3210/`，前端会自动探活并切到远程模式；服务端挂掉则回退本地模式并出黄条。
 
+### 一键启停（`start.sh` / `stop.sh`）
+
+服务端不用记命令，仓库根目录给了四个脚本：
+
+```bash
+./start.sh      # 启动（已在跑就只报状态，不会起第二个）
+./stop.sh       # 停止（先 SIGTERM 优雅退出，10 秒不退才 SIGKILL）
+./restart.sh    # 重启
+./status.sh     # 进程 + 健康检查 + 端口占用，一条命令看清
+./scripts/server-control.sh logs    # 跟踪 server/data/server.log
+```
+
+**两种模式它自己判断**，不用你选：
+
+| 机器上有 `wjq-rollcall.service` 吗 | 走哪条路 | 日志在哪 |
+| --- | --- | --- |
+| 有（生产机就是这样） | `systemctl start/stop/restart`，开机自启不受影响 | `journalctl -u wjq-rollcall` 与 `server/data/server.log` |
+| 没有（本机、临时测试） | `nohup node src/index.ts &`，pid 写进 `server/data/wjq.pid` | `server/data/server.log` |
+
+想强制指定：`WJQ_MODE=manual ./start.sh` 或 `WJQ_MODE=systemd ./start.sh`。
+
+**几个刻意的设计**：
+
+- **不重复启动**：已经在跑时 `start.sh` 只回报状态并退出 0，脚本可以被 crontab / 部署流程反复调用。
+- **起来后必须通过健康检查才算成功**：轮询 `/healthz` 最多 40 秒（`HEALTH_TIMEOUT=60 ./start.sh` 可调）。进程活着但探活不通，脚本返回 1 并直接把该看的日志路径打出来——不是「启动成功」四个字就完事。
+- **不误杀别人的进程**：manual 模式除了看 pid 文件，还会核对 `/proc/<pid>/cmdline` 里是不是 `src/index.ts`，pid 被系统复用后不会杀掉无关进程；端口被别人占了就明确报「不是本脚本起的」并退出 1。
+- **`sudo` 只在需要时用**：systemctl 要 root，脚本先试免密 `sudo -n`，不行才弹密码；非交互环境（CI）里没权限会直接告诉你用 `sudo ./stop.sh`。
+- **`.env` 是逐行解析的**，不 `source`——它是配置不是脚本；而且命令行上已给的变量优先，所以 `PORT=3210 ./start.sh` 能临时起一个测试实例，不动 `.env`。
+
+改了 `server/.env` 或代码之后必须 `./restart.sh` 才生效（Node 不会自己重读 `.env`）。本地调试想自动重载用 `cd server && node --watch src/index.ts`。
+
 ### 技术选择与理由
 
 | 选择 | 理由 |
@@ -833,6 +872,9 @@ rollcall/
 │   ├── scripts/smoke.mjs         端到端冒烟测试（19 条断言）
 │   ├── .env.example              全部环境变量与注释
 │   └── data/                    运行期生成（SQLite 库 + 日志，不进仓库）
+├── start.sh / stop.sh       一键启停（服务端；自动判断 systemd 还是 nohup）
+├── restart.sh / status.sh   一键重启 / 看进程与健康检查
+├── scripts/server-control.sh  上面四个脚本的公共实现（也支持 logs 跟踪日志）
 ├── tools/                  构建/校验脚本（scope-games-css、verify-admin-hash、
 │                           test-p4-users.sh 人员管理接口 29 条断言）
 └── .gitignore

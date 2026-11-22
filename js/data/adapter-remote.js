@@ -262,7 +262,12 @@
           classes: cache.classes,
           scores: cache.scores,
           settings: cache.settings,
-          history: cache.history
+          history: cache.history,
+          /* state 里放的是「界面位置 + 抽过谁」。它也必须进缓存：
+             之前漏了这一项，远程模式刷新后 loadState() 永远拿到空对象，
+             于是每次刷新都跳回首页排行榜，且「不重复抽取」的已抽名单被清空
+             （本地模式没这问题，因为 adapter-local 直接存 RCStorage）。 */
+          state: cache.state
         }));
       } catch (e) { /* 超配额忽略：缓存不是真源 */ }
     }
@@ -278,6 +283,7 @@
         cache.scores = v.scores || Object.create(null);
         cache.settings = v.settings || null;
         cache.history = v.history || null;
+        cache.state = v.state || null;
       } catch (e) { /* ignore */ }
     }
 
@@ -479,6 +485,9 @@
 
     function setState(s) {
       cache.state = clone(s) || {};
+      /* 一定要落盘：state 里有界面位置（view/homeTab）和「抽过谁」。
+         不写缓存的话刷新一次就全丢，回到首页排行榜。 */
+      persistCache();
       emit({ type: 'state' });
       return true;
     }

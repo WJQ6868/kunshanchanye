@@ -47,7 +47,7 @@
     nameMode: 'new',       // 'new' | 'rename'
     nameTarget: '',        // 重命名的原班级名
     focusKey: '',          // 右侧面板「当前学生」（替代原详情弹窗）
-    homeTab: 'rank',       // 首页标签页：'rank'（排行榜）| 'classes'（所有班级）
+    homeTab: 'rank',       // 首页标签页：'rank'（排行榜）| 'classes'（所有班级）；小游戏是独立页，见 gamesFrom
     stuPeriod: 'week',     // 本周之星周期：'week' | 'all' | 'custom'
     clsPeriod: 'all',      // 班级总分排名周期：'week' | 'month' | 'all' | 'custom'
     stuRange: { from: '', to: '' },  // 学生榜自定义期限（'YYYY-MM-DD'，空=不限）
@@ -283,6 +283,9 @@
     if (els.screenClass) els.screenClass.classList.toggle('active', state.view === 'class');
     if (els.screenGames) els.screenGames.classList.toggle('active', state.view === 'games');
     document.body.dataset.screen = state.view;
+    // 首页标签的高亮跟着页面走：小游戏页亮「小游戏」，回首页亮当前标签
+    if (state.view === 'games') paintHomeTabs('games');
+    else if (state.view === 'home') paintHomeTabs(state.homeTab);
     if (state.view === 'class') {
       // 切进工作台后舞台才有尺寸，下一帧重算网格与画布
       requestAnimationFrame(function () {
@@ -304,6 +307,8 @@
     hideResult();
     if (global.RCGames && typeof global.RCGames.render === 'function') global.RCGames.render();
     showScreen('games');
+    // 小游戏是首页的第三个标签，进来时把高亮点到它上面
+    paintHomeTabs('games');
     saveView();
   }
 
@@ -320,6 +325,8 @@
     } else {
       renderHome();
       showScreen('home');
+      // 回到进来之前停留的那个标签（排行榜 / 所有班级）
+      paintHomeTabs(state.homeTab);
       saveView();
     }
   }
@@ -1068,15 +1075,13 @@
     /* 切换主题 / 设置这两个按钮已经从顶栏挪进个人中心菜单（顶栏太挤），
        入口在 user-ui.js 的 #userMenuTheme / #userMenuSettings。 */
 
-    // 课堂小游戏
-    ['#btnGamesHome', '#btnGamesClass'].forEach(function (sel) {
-      var b = $(sel);
-      if (b) b.addEventListener('click', openGames);
-    });
+    // 课堂小游戏：首页入口是 #homeTabs 里的第三个标签，这里只剩班级页顶栏那个按钮
+    var gBtn = $('#btnGamesClass');
+    if (gBtn) gBtn.addEventListener('click', openGames);
     var gBack = $('#btnGamesBack');
     if (gBack) gBack.addEventListener('click', closeGames);
 
-    // 首页标签页：排行榜 / 所有班级
+    // 首页标签页：排行榜 / 所有班级 / 小游戏
     $$('#homeTabs .tab-btn').forEach(function (b) {
       b.addEventListener('click', function () { switchHomeTab(b.dataset.tab); saveView(); });
     });
@@ -2800,17 +2805,29 @@
 
   /* -------------------- 排行榜（独立界面） -------------------- */
 
-  /** 切换首页标签页：'rank' 排行榜 / 'classes' 所有班级 */
-  function switchHomeTab(tab) {
-    var t = tab === 'classes' ? 'classes' : 'rank';
-    // 没有查看排行榜权限（如被单独收回）时不允许停在排行榜页
-    if (t === 'rank' && !canDo('export.rank')) t = 'classes';
-    state.homeTab = t;
+  /** 三个标签的高亮：在小游戏页时只有「小游戏」亮 */
+  function paintHomeTabs(t) {
     $$('#homeTabs .tab-btn').forEach(function (b) {
       var on = b.dataset.tab === t;
       b.classList.toggle('active', on);
       b.setAttribute('aria-selected', on ? 'true' : 'false');
     });
+  }
+
+  /**
+   * 切换首页标签页：'rank' 排行榜 / 'classes' 所有班级 / 'games' 小游戏。
+   *
+   * 小游戏不是首页里的一块 pane，而是一整屏（有自己的顶栏、筛选条和返回键），
+   * 所以点这个标签等于打开小游戏页。state.homeTab 仍然只记 rank/classes 两值，
+   * 从小游戏返回时回到进来之前停留的那个标签。
+   */
+  function switchHomeTab(tab) {
+    if (tab === 'games') { openGames(); return; }
+    var t = tab === 'classes' ? 'classes' : 'rank';
+    // 没有查看排行榜权限（如被单独收回）时不允许停在排行榜页
+    if (t === 'rank' && !canDo('export.rank')) t = 'classes';
+    state.homeTab = t;
+    paintHomeTabs(t);
     if (els.paneRank) els.paneRank.classList.toggle('hidden', t !== 'rank');
     if (els.paneClasses) els.paneClasses.classList.toggle('hidden', t !== 'classes');
     // 搜索与导出只在「所有班级」页有意义

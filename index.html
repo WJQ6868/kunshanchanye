@@ -170,7 +170,6 @@
 
       <div class="topbar-actions">
         <button class="btn btn-primary" id="btnNewClass">＋ 新建班级</button>
-        <button class="btn btn-ghost" id="btnGamesHome">🎮 小游戏</button>
         <button class="btn btn-ghost" id="btnEduSync" title="从教务系统读取班级与师生名单">🔄 读取教务名单</button>
         <button class="btn btn-ghost" id="btnImportHome">导入名单</button>
         <button class="user-chip" id="userChipHome" title="账号与权限">
@@ -182,11 +181,12 @@
 
     <div class="home-body">
 
-      <!-- 标签切换：排行榜 / 所有班级，同一行 -->
+      <!-- 标签切换：排行榜 / 所有班级 / 小游戏，同一行 -->
       <div class="home-tabs">
         <div class="tab-group" id="homeTabs" role="tablist">
           <button class="tab-btn active" data-tab="rank" role="tab" aria-selected="true">🏆 排行榜</button>
           <button class="tab-btn" data-tab="classes" role="tab" aria-selected="false">所有班级</button>
+          <button class="tab-btn" data-tab="games" role="tab" aria-selected="false">🎮 小游戏</button>
         </div>
         <span class="hint" id="homeCount"></span>
         <span class="spacer"></span>

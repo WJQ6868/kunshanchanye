@@ -1034,8 +1034,8 @@
 
     els.homeSearch.addEventListener('input', debounce(renderHome, 120));
 
-    $('#btnThemeHome').addEventListener('click', cycleTheme);
-    $('#btnSettingsHome').addEventListener('click', function () { showModal(els.settingsModal); });
+    /* 切换主题 / 设置这两个按钮已经从顶栏挪进个人中心菜单（顶栏太挤），
+       入口在 user-ui.js 的 #userMenuTheme / #userMenuSettings。 */
 
     // 课堂小游戏
     ['#btnGamesHome', '#btnGamesClass'].forEach(function (sel) {
@@ -1135,8 +1135,7 @@
       });
     });
 
-    // 主题
-    $('#btnTheme').addEventListener('click', cycleTheme);
+    // 主题（顶栏的 ◐ 已收进个人中心菜单，这里只剩设置弹窗里的三态 pill）
     $$('#themeSwitch .pill').forEach(function (b) {
       b.addEventListener('click', function () {
         applyTheme(b.dataset.theme);
@@ -1150,7 +1149,6 @@
     $('#btnImport').addEventListener('click', function () { openImport(); });
     $('#btnImport2').addEventListener('click', function () { openImport(); });
     $('#btnManual').addEventListener('click', function () { openImport(true); });
-    $('#btnSettings').addEventListener('click', function () { showModal(els.settingsModal); });
     $('#btnHistory').addEventListener('click', openHistory);
     $$('[data-close]').forEach(function (b) {
       b.addEventListener('click', function () {
@@ -3185,12 +3183,18 @@
   }
 
   var THEME_ORDER = ['white', 'gold', 'blue'];
+  var THEME_LABELS = { gold: '暗夜金', blue: '学院蓝', white: '白色' };
 
   function applyTheme(theme) {
     var t = THEME_ORDER.indexOf(theme) >= 0 ? theme : 'white';
     document.documentElement.dataset.theme = t;
     // 转盘 canvas 用 JS 绘制，需要同步主题配色
     if (global.AnimWheel && global.AnimWheel.setTheme) global.AnimWheel.setTheme(t);
+  }
+
+  /** 当前主题的中文名，给个人中心菜单里那行「切换主题 · 白色」用 */
+  function themeLabel() {
+    return THEME_LABELS[state.settings.theme] || THEME_LABELS.white;
   }
 
   /** 主题三态循环：暗夜金 → 学院蓝 → 白色 → 暗夜金 */
@@ -3202,13 +3206,16 @@
     state.settings.theme = next;
     RCData.saveSettings(state.settings);
     syncThemePills();
-    toast('已切换到' + ({ gold: '暗夜金', blue: '学院蓝', white: '白色' })[next] + '主题');
+    toast('已切换到' + THEME_LABELS[next] + '主题');
   }
 
   function syncThemePills() {
     $$('#themeSwitch .pill').forEach(function (b) {
       b.classList.toggle('active', b.dataset.theme === state.settings.theme);
     });
+    if (global.RCUserUI && typeof global.RCUserUI.paintThemeVal === 'function') {
+      global.RCUserUI.paintThemeVal();
+    }
   }
 
   function showModal(m) {
@@ -3321,10 +3328,6 @@
     ['#btnImport2', 'roster.import', 'off'],
     ['#btnEduSync', 'roster.sync', 'hide'],
     ['#btnManual', 'roster.import', 'off'],
-    ['#btnSettingsHome', 'settings.open', 'off'],
-    ['#btnSettings', 'settings.open', 'off'],
-    ['#btnThemeHome', 'theme.switch', 'off'],
-    ['#btnTheme', 'theme.switch', 'off'],
     ['#btnRankExport', 'export.rank', 'off'],
     ['#btnRankExportCls', 'export.rank', 'off'],
     ['#btnRankExportAvg', 'export.rank', 'off'],
@@ -3483,7 +3486,11 @@
         onMe: function (m) {
           state.me = m || null;
           afterMeChanged();
-        }
+        },
+        /* 设置与切换主题这两个入口从顶栏搬进了个人中心菜单 */
+        onSettings: function () { showModal(els.settingsModal); },
+        onTheme: function () { cycleTheme(); },
+        themeLabel: themeLabel
       });
     }
 

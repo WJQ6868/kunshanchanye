@@ -173,8 +173,6 @@
         <button class="btn btn-ghost" id="btnGamesHome">🎮 小游戏</button>
         <button class="btn btn-ghost" id="btnEduSync" title="从教务系统读取班级与师生名单">🔄 读取教务名单</button>
         <button class="btn btn-ghost" id="btnImportHome">导入名单</button>
-        <button class="icon-btn" id="btnThemeHome" title="切换主题">◐</button>
-        <button class="icon-btn" id="btnSettingsHome" title="设置">⚙</button>
         <button class="user-chip" id="userChipHome" title="账号与权限">
           <span class="user-avatar" id="userAvatarHome"><img class="avatar-niu" src="assets/brand/niu-avatar.png" alt=""></span>
           <span class="user-name" id="userNameHome">管理员</span>
@@ -320,8 +318,6 @@
           <button class="pill" data-anim="roller">滚屏</button>
           <button class="pill" data-anim="wheel">转盘</button>
         </div>
-        <button class="icon-btn" id="btnTheme" title="切换主题">◐</button>
-        <button class="icon-btn" id="btnSettings" title="设置">⚙</button>
         <button class="btn btn-ghost" id="btnGamesClass">🎮 小游戏</button>
         <button class="btn btn-ghost" id="btnImport">导入名单</button>
         <button class="user-chip" id="userChip" title="账号与权限">
@@ -855,6 +851,12 @@
   <p class="user-menu-sub" id="userMenuScope">可管理全部班级</p>
   <button class="user-menu-item" id="userMenuPwd">修改密码</button>
   <button class="user-menu-item" id="userMenuUsers">人员管理</button>
+  <div class="user-menu-sep"></div>
+  <button class="user-menu-item" id="userMenuSettings">设置</button>
+  <button class="user-menu-item" id="userMenuTheme">
+    切换主题
+    <span class="user-menu-val" id="userMenuThemeVal">白色</span>
+  </button>
   <div class="user-menu-sep"></div>
   <button class="user-menu-item danger" id="userMenuOut">退出登录</button>
 </div>

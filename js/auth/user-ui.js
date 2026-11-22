@@ -21,7 +21,7 @@
   var $$ = function (s) { return Array.prototype.slice.call(document.querySelectorAll(s)); };
 
   var els = {};
-  var hooks = { toast: function () {}, onSignOut: null, onMe: null };
+  var hooks = { toast: function () {}, onSignOut: null, onMe: null, onSettings: null, onTheme: null, themeLabel: null };
   var editingId = '';        // '' = 新增，否则是编辑中的用户 id
   var menuOpen = false;
   var bound = false;         // 事件只绑一次，start() 可能被多次调用
@@ -39,6 +39,9 @@
     els.menuScope = $('#userMenuScope');
     els.menuPwd = $('#userMenuPwd');
     els.menuUsers = $('#userMenuUsers');
+    els.menuSettings = $('#userMenuSettings');
+    els.menuTheme = $('#userMenuTheme');
+    els.menuThemeVal = $('#userMenuThemeVal');
     els.menuOut = $('#userMenuOut');
     els.usersModal = $('#usersModal');
     els.usersHint = $('#usersHint');
@@ -139,6 +142,18 @@
     if (els.menuUsers) els.menuUsers.classList.toggle('hidden', !canUsers);
     if (els.menuPwd) els.menuPwd.classList.toggle('hidden', !m || m.user.role === 'local');
     if (els.menuOut) els.menuOut.classList.toggle('hidden', !m || m.user.role === 'local');
+
+    /* 设置与切换主题原来各占一个顶栏图标，顶栏太挤，收进这里。
+       没有权限就整项隐藏（置灰的下拉项点了没反应，反而更费解）。
+       判权限直接读 me().permissions：RCSession.can 读的是会话快照，
+       登录/切换账号后快照与 state.me 可能短暂不同步，会把有权限的项藏掉。 */
+    var canSettings = !m || !!(m.permissions && m.permissions['settings.open']);
+    var canTheme = !m || !!(m.permissions && m.permissions['theme.switch']);
+    if (els.menuSettings) els.menuSettings.classList.toggle('hidden', !canSettings);
+    if (els.menuTheme) els.menuTheme.classList.toggle('hidden', !canTheme);
+    if (els.menuThemeVal && hooks.themeLabel) {
+      els.menuThemeVal.textContent = hooks.themeLabel() || '';
+    }
   }
 
   function openMenu(anchor) {
@@ -557,6 +572,18 @@
 
     if (els.menuPwd) els.menuPwd.addEventListener('click', function () { closeMenu(); openPwd(); });
     if (els.menuUsers) els.menuUsers.addEventListener('click', function () { closeMenu(); openUsers(); });
+    if (els.menuSettings) els.menuSettings.addEventListener('click', function () {
+      closeMenu();
+      if (hooks.onSettings) hooks.onSettings();
+    });
+    if (els.menuTheme) els.menuTheme.addEventListener('click', function () {
+      /* 主题是循环切换，菜单保持打开——这样能连点几次看到颜色变化再关，
+         并且值那一栏会跟着刷新。 */
+      if (hooks.onTheme) hooks.onTheme();
+      if (els.menuThemeVal && hooks.themeLabel) {
+        els.menuThemeVal.textContent = hooks.themeLabel() || '';
+      }
+    });
     if (els.menuOut) els.menuOut.addEventListener('click', function () {
       closeMenu();
       if (!global.confirm('退出登录？')) return;
@@ -599,13 +626,17 @@
 
   /**
    * 启动账号 UI。
-   * @param {{toast:Function, onSignOut:Function, onMe:Function}} opt
+   * @param {{toast:Function, onSignOut:Function, onMe:Function,
+   *          onSettings:Function, onTheme:Function, themeLabel:Function}} opt
    */
   function start(opt) {
     opt = opt || {};
     if (opt.toast) hooks.toast = opt.toast;
     if (opt.onSignOut) hooks.onSignOut = opt.onSignOut;
     if (opt.onMe) hooks.onMe = opt.onMe;
+    if (opt.onSettings) hooks.onSettings = opt.onSettings;
+    if (opt.onTheme) hooks.onTheme = opt.onTheme;
+    if (opt.themeLabel) hooks.themeLabel = opt.themeLabel;
     cache();
     /* start() 可能被调用多次（登录成功后、刷新会话后）。事件只能绑一次，
        否则同一个点击被处理两遍——用户菜单会「打开又立刻关闭」。 */
@@ -613,9 +644,16 @@
     paintChip();
   }
 
+  /** 主题切换后只刷新菜单里那一行文字（不重排整个菜单） */
+  function paintThemeVal() {
+    if (!els.menuThemeVal || !hooks.themeLabel) return;
+    els.menuThemeVal.textContent = hooks.themeLabel() || '';
+  }
+
   global.RCUserUI = {
     start: start,
     refresh: function () { cache(); paintChip(); },
+    paintThemeVal: paintThemeVal,
     openUsers: openUsers,
     openPwd: openPwd,
     paintChip: paintChip

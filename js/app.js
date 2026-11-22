@@ -182,6 +182,18 @@
       exportScopeField: $('#exportScopeField'),
       exportDesc: $('#exportDesc'),
       btnExportRun: $('#btnExportRun'),
+      // 危险操作确认弹窗
+      dangerModal: $('#dangerModal'),
+      dangerTitle: $('#dangerTitle'),
+      dangerDesc: $('#dangerDesc'),
+      dangerNameField: $('#dangerNameField'),
+      dangerNameLabel: $('#dangerNameLabel'),
+      dangerName: $('#dangerName'),
+      dangerPwField: $('#dangerPwField'),
+      dangerPw: $('#dangerPw'),
+      dangerEye: $('#dangerEye'),
+      dangerErr: $('#dangerErr'),
+      btnDangerOk: $('#btnDangerOk'),
       // 当前学生（面板内联，替代原详情弹窗）
       focusCard: $('#focusCard'),
       focusName: $('#focusName'),
@@ -787,14 +799,33 @@
     toast('已新建「' + RCClasses.normName(val) + '」', 'ok');
   }
 
+  /**
+   * 删除班级：先过一道「输班级名 + 登录密码」的确认弹窗，再真删。
+   * 为什么不用 confirm()：删班级会连带删掉整份名单与该班全部加分记录，
+   * 一键就能点掉太危险（一次误点等于一个学期白记），所以要求手打班级名，
+   * 并且要验证当前账号的登录密码——别人趁你离开工位点一下是删不掉的。
+   */
   function deleteClass(name) {
     if (!guard('class.delete', '当前账号没有删除班级的权限')) return;
     var st = classStats(name);
-    var msg = '删除班级「' + RCScore.classLabel(name) + '」？';
-    if (st.count) msg += '\n该班 ' + st.count + ' 名学生的名单会一并移除。';
-    if (st.records) msg += '\n该班 ' + st.records + ' 条加分记录会一并删除。';
-    if (!confirm(msg)) return;
+    var label = RCScore.classLabel(name);
+    var lines = ['删除后无法恢复。'];
+    if (st.count) lines.push('该班 ' + st.count + ' 名学生的名单会一并移除。');
+    if (st.records) lines.push('该班 ' + st.records + ' 条加分记录会一并删除。');
+    confirmDanger({
+      title: '删除班级「' + label + '」',
+      desc: lines,
+      nameLabel: '请输入班级名以确认',
+      expectName: label,
+      needPassword: true,
+      okText: '删除班级'
+    }).then(function (ok) {
+      if (ok) doDeleteClass(name);
+    });
+  }
 
+  /** 真正执行删班（已经被上面的确认弹窗放行） */
+  function doDeleteClass(name) {
     state.classes = RCClasses.remove(state.classes, name);
     state.students = state.students.filter(function (s) {
       return RCScore.classKey(s) !== name;
@@ -807,7 +838,7 @@
       state.currentClass = state.classes.length ? state.classes[0].name : '';
       loadClassScores();
     }
-    // 用户已经在上面的 confirm() 里确认过：删到空班级 / 空名单是预期结果
+    // 用户已经在确认弹窗里确认过：删到空班级 / 空名单是预期结果
     RCData.saveClasses({ current: state.currentClass, list: state.classes }, { confirmClear: true });
     renderHome();
     refreshAll();
@@ -1161,6 +1192,7 @@
         if (e.target === m) hideModal(m);
       });
     });
+    bindDangerModal();
 
     // 导入：选择文件
     var dz = $('#dropzone');
@@ -1278,6 +1310,7 @@
     });
     $('#btnClearHistory').addEventListener('click', function () {
       if (!state.history.length) { toast('没有记录'); return; }
+      if (!confirm('清空全部 ' + state.history.length + ' 条点名记录？\n清空后无法恢复。')) return;
       state.history = [];
       RCData.saveHistory([]);
       renderHistory();
@@ -1380,6 +1413,14 @@
       if (!canEditClass(state.currentClass)) { toast(readOnlyTip(), 'warn'); return; }
       var id = b.dataset.id;
       if (!id) return;
+      // 删记录也要确认：日志行挨得密，很容易点到旁边那个 ✕
+      var rec = null;
+      (state.scores.records || []).forEach(function (r) { if (r.id === id) rec = r; });
+      var what = rec
+        ? (rec.name + ' 的 ' + (rec.delta > 0 ? '+' : '') + rec.delta + ' 分' +
+           (rec.reason ? '（' + rec.reason + '）' : ''))
+        : '这条记录';
+      if (!confirm('删除 ' + what + '？\n删除后可以用 Ctrl+Z 撤销。')) return;
       pushUndo('删除一条加分记录');
       state.scores.records = RCScore.removeById(state.scores.records, id);
       saveScores();
@@ -2324,6 +2365,7 @@
       row.querySelector('.nm').textContent = s.name;
       row.querySelector('.sub').textContent = [s.id, s.group].filter(Boolean).join(' · ');
       row.querySelector('.del').addEventListener('click', function () {
+        if (!confirm('从本次导入名单里移除「' + s.name + '」？')) return;
         state.pendingImport.splice(i, 1);
         renderPreview();
       });
@@ -2385,6 +2427,24 @@
     var kept = state.students.filter(function (s) {
       return incomingClasses.indexOf(RCScore.classKey(s)) < 0;
     });
+
+    /* 导入是「整班替换」：这些班级原有的学生如果不在新名单里，就会被删掉。
+       先算清楚会删掉多少人、并让用户确认，避免选错归属把别的班名单冲掉。 */
+    var replaced = state.students.length - kept.length;
+    if (replaced > 0) {
+      var names = [];
+      state.students.forEach(function (s) {
+        var k = RCScore.classKey(s);
+        if (incomingClasses.indexOf(k) >= 0) names.push(s.name);
+      });
+      var sample = names.slice(0, 5).join('、') + (names.length > 5 ? ' 等' : '');
+      var tip = '导入会替换 ' + incomingClasses.length + ' 个班级的现有名单：\n' +
+        '原有 ' + replaced + ' 名学生会被移除（' + sample + '），\n' +
+        '新的 ' + incoming.length + ' 名学生将写入。\n\n' +
+        '确定继续？';
+      if (!confirm(tip)) return;
+    }
+
     state.students = kept.concat(incoming);
 
     // 3) 班级元数据：新建班级要建出来
@@ -3230,6 +3290,150 @@
     return !!document.querySelector('.modal.show');
   }
 
+  /* -------------------- 危险操作确认弹窗 -------------------- */
+
+  /**
+   * 危险操作确认：返回 Promise<boolean>，true = 用户确认并（按需）通过了密码校验。
+   *
+   * opts:
+   *   title        标题
+   *   desc         说明，字符串数组，每项一行（会原样换行显示）
+   *   nameLabel    名称输入框的标签；不给就不显示输入框
+   *   expectName   必须一字不差输入的名称；不给就不显示输入框
+   *   needPassword 是否要求输入登录密码（远程模式走服务端校验）
+   *   okText       确认按钮文案
+   *
+   * 为什么不用 confirm()：删班级这种操作会连带清掉整份名单与全部加分记录，
+   * 系统自带的 confirm 一个回车就过去了，误点的代价太大。
+   */
+  var dangerPending = null;
+
+  function confirmDanger(opts) {
+    var o = opts || {};
+    return new Promise(function (resolve) {
+      dangerPending = {
+        resolve: resolve,
+        decided: false,
+        expectName: o.expectName ? String(o.expectName) : '',
+        needPassword: !!o.needPassword,
+        okText: o.okText || '确认删除'
+      };
+
+      els.dangerTitle.textContent = o.title || '确认操作';
+      var lines = o.desc == null ? [] : (Array.isArray(o.desc) ? o.desc : [o.desc]);
+      els.dangerDesc.textContent = lines.join('\n');
+
+      var hasName = !!dangerPending.expectName;
+      els.dangerNameField.classList.toggle('hidden', !hasName);
+      els.dangerNameLabel.textContent = o.nameLabel || '输入名称以确认';
+      els.dangerName.value = '';
+
+      els.dangerPwField.classList.toggle('hidden', !dangerPending.needPassword);
+      els.dangerPw.value = '';
+      els.dangerPw.type = 'password';
+      els.dangerEye.textContent = '👁';
+      els.dangerEye.title = '显示密码';
+
+      els.dangerName.classList.remove('is-bad');
+      els.dangerPw.classList.remove('is-bad');
+      hideDangerErr();
+      els.btnDangerOk.textContent = dangerPending.okText;
+
+      /* 这里统一走 refreshDangerOk 而不是直接置灰：
+         要求输名称/密码时要灰着，什么都不用输时（纯提示型确认）就该能点。 */
+      refreshDangerOk();
+
+      showModal(els.dangerModal);
+      if (hasName) els.dangerName.focus();
+      else if (dangerPending.needPassword) els.dangerPw.focus();
+    });
+  }
+
+  /** 关闭确认弹窗并兑现 Promise。所有出口（确认/取消/✕/遮罩/Esc）都走这里 */
+  function settleDanger(ok) {
+    if (!dangerPending) return;
+    var r = dangerPending.resolve;
+    dangerPending.decided = true;
+    dangerPending = null;
+    hideModal(els.dangerModal);
+    r(!!ok);
+  }
+
+  function showDangerErr(msg) {
+    els.dangerErr.textContent = msg;
+    els.dangerErr.classList.remove('hidden');
+  }
+
+  function hideDangerErr() {
+    els.dangerErr.textContent = '';
+    els.dangerErr.classList.add('hidden');
+  }
+
+  /** 名称对不上、密码没填时把确认按钮灰掉，比点了再报错清楚 */
+  function refreshDangerOk() {
+    if (!dangerPending) return;
+    var nameOk = !dangerPending.expectName ||
+      els.dangerName.value.trim() === dangerPending.expectName;
+    var pwOk = !dangerPending.needPassword || !!els.dangerPw.value;
+    els.dangerName.classList.toggle('is-bad',
+      !!els.dangerName.value && !nameOk);
+    els.btnDangerOk.disabled = !(nameOk && pwOk);
+  }
+
+  function bindDangerModal() {
+    if (!els.dangerModal) return;
+    els.dangerName.addEventListener('input', refreshDangerOk);
+    els.dangerPw.addEventListener('input', function () {
+      els.dangerPw.classList.remove('is-bad');
+      hideDangerErr();
+      refreshDangerOk();
+    });
+    els.dangerEye.addEventListener('click', function () {
+      var show = els.dangerPw.type === 'password';
+      els.dangerPw.type = show ? 'text' : 'password';
+      els.dangerEye.textContent = show ? '🙈' : '👁';
+      els.dangerEye.title = show ? '隐藏密码' : '显示密码';
+      els.dangerPw.focus();
+    });
+
+    els.btnDangerOk.addEventListener('click', function () {
+      if (!dangerPending || els.btnDangerOk.disabled) return;
+      var st = dangerPending;
+      if (!st.needPassword) { settleDanger(true); return; }
+
+      els.btnDangerOk.disabled = true;
+      els.btnDangerOk.textContent = '校验中…';
+      hideDangerErr();
+      var pw = els.dangerPw.value;
+      global.RCSession.verifyPassword(pw).then(function (r) {
+        // 校验期间弹窗被关掉了：别再改界面，也别再兑现
+        if (dangerPending !== st) return;
+        els.btnDangerOk.textContent = st.okText;
+        if (r && r.ok) { settleDanger(true); return; }
+        showDangerErr((r && r.msg) || '密码不正确');
+        els.dangerPw.classList.add('is-bad');
+        els.dangerPw.focus();
+        els.dangerPw.select();
+        refreshDangerOk();
+      }).catch(function () {
+        if (dangerPending !== st) return;
+        els.btnDangerOk.textContent = st.okText;
+        showDangerErr('校验失败，请重试');
+        refreshDangerOk();
+      });
+    });
+
+    /* 弹窗可能被 ✕、点遮罩、Esc 关掉，这几种一律算取消。
+       用 MutationObserver 盯 .show 类，避免逐个出口去挂钩子。 */
+    if (global.MutationObserver) {
+      new MutationObserver(function () {
+        if (!dangerPending || dangerPending.decided) return;
+        if (els.dangerModal.classList.contains('show')) return;
+        settleDanger(false);
+      }).observe(els.dangerModal, { attributes: true, attributeFilter: ['class'] });
+    }
+  }
+
   function toast(msg, kind) {
     els.toast.textContent = msg;
     els.toast.className = 'toast show' + (kind ? ' ' + kind : '');
@@ -3719,6 +3923,7 @@
     openGames: openGames,
     closeGames: closeGames,
     showScreen: showScreen,
+    confirmDanger: confirmDanger,
     toast: toast
   };
 })(window);

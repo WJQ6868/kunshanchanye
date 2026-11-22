@@ -6,6 +6,7 @@
    POST /auth/refresh  续期
    GET  /me            当前用户 + 权限 + 范围
    POST /auth/password 改自己的密码（改后吊销其它会话）
+   POST /auth/verify-password 校验当前登录者的密码（危险操作二次确认）
    ============================================================ */
 
 import type { Router } from '../router.ts';
@@ -58,6 +59,47 @@ async function noteAttempt(ctx: Ctx, schoolId: string, username: string, ok: boo
     'INSERT INTO login_attempt (school_id, username, ip, ok, created_at) VALUES (?,?,?,?,?)',
     [schoolId, username.slice(0, 64), ctx.ip, ok ? 1 : 0, new Date().toISOString()],
   );
+}
+
+/* ---------- 危险操作的密码校验失败计数 ---------- */
+
+/**
+ * 「删除班级」这类不可撤销的操作，前端会让用户再输一次登录密码。
+ * 如果只校验不计数，一个偷到会话的人就能在这里无限次猜密码 ——
+ * 而登录接口那边已经被限流挡住了，等于开了个后门。
+ *
+ * 计数放在内存里：单进程部署够用，进程重启即清零（可接受，
+ * 重启本身就要重新登录）。按 user.id 计数，不按 IP ——
+ * 同一个办公室的 NAT 后面可能坐着好几个老师。
+ */
+const VERIFY_WINDOW_MS = 10 * 60_000;
+const MAX_VERIFY_FAILS = 5;
+const verifyFails = new Map<string, { n: number; since: number }>();
+
+function verifyFailCount(userId: string): number {
+  const e = verifyFails.get(userId);
+  if (!e) return 0;
+  if (Date.now() - e.since > VERIFY_WINDOW_MS) {
+    verifyFails.delete(userId);
+    return 0;
+  }
+  return e.n;
+}
+
+function noteVerifyFail(userId: string): void {
+  const now = Date.now();
+  const e = verifyFails.get(userId);
+  if (!e || now - e.since > VERIFY_WINDOW_MS) {
+    verifyFails.set(userId, { n: 1, since: now });
+    return;
+  }
+  e.n += 1;
+  // 顺手清掉过期的键，别让 Map 无限长
+  if (verifyFails.size > 500) {
+    for (const [k, v] of verifyFails) {
+      if (now - v.since > VERIFY_WINDOW_MS) verifyFails.delete(k);
+    }
+  }
 }
 
 export function registerAuthRoutes(r: Router): void {
@@ -235,6 +277,43 @@ export function registerAuthRoutes(r: Router): void {
     },
     { auth: false },
   );
+
+  /* ---------- 校验登录密码（危险操作二次确认） ----------
+     用途：删除班级这种不可撤销的操作，前端要求再输一次登录密码。
+     只校验当前登录者自己的密码，不查别人，也不需要额外权限
+     —— 能登录就说明有密码，输对就放行。
+
+     注意两点：
+     1) 密码错必须回 403，不能回 401。前端 adapter-remote 的 401 分支
+        会统一调 RCSession.expireNow('unauthorized') 把人踢回登录页，
+        用户只是手滑输错一次密码，不该被登出。
+     2) 失败要计数限流。登录接口有限流，这里不限的话就是绕过限流
+        猜密码的后门。 */
+  r.post('/auth/verify-password', async (ctx: Ctx): Promise<Reply> => {
+    const user = ctx.user;
+    if (!user) throw err.unauthorized();
+
+    const fails = verifyFailCount(user.id);
+    if (fails >= MAX_VERIFY_FAILS) {
+      log.warn('危险操作密码校验被限流', { userId: user.id, fails });
+      throw err.tooMany('密码输错次数过多，请 10 分钟后再试');
+    }
+
+    const body = (ctx.body || {}) as { password?: string };
+    const password = String(body.password || '');
+    if (!password) throw err.badRequest('请输入登录密码');
+
+    const ok = await verifyPassword(password, user.password_hash);
+    if (!ok) {
+      noteVerifyFail(user.id);
+      await ctx.audit('auth.verify_password_failed', { targetType: 'user', targetId: user.id });
+      throw err.forbidden('密码不正确');
+    }
+
+    // 校验通过就清掉计数，别让白天的几次手滑累积到晚上
+    verifyFails.delete(user.id);
+    return json(200, { ok: true });
+  });
 
   /* ---------- 改自己的密码 ---------- */
   r.post('/auth/password', async (ctx: Ctx): Promise<Reply> => {

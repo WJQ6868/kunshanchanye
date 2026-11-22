@@ -585,6 +585,35 @@
     });
   }
 
+  /**
+   * 校验当前登录者自己的密码（危险操作二次确认用）。
+   * @returns {Promise<{ok:boolean, msg?:string}>}
+   *
+   * 远程模式走 POST /auth/verify-password，服务端失败回 403（不是 401，
+   * 否则会被适配器当成会话过期把人踢回登录页）。
+   * 本机模式没有网络层，直接用 PBKDF2 对本地哈希。
+   */
+  function verifyPassword(password) {
+    if (!current) return Promise.resolve({ ok: false, msg: '未登录' });
+    var pw = String(password || '');
+    if (!pw) return Promise.resolve({ ok: false, msg: '请输入登录密码' });
+
+    if (remoteMode) {
+      if (!global.RCData || typeof global.RCData.request !== 'function') {
+        return Promise.resolve({ ok: false, msg: '数据适配器未就绪' });
+      }
+      return global.RCData.request('POST', '/auth/verify-password', { password: pw })
+        .then(function () { return { ok: true }; })
+        .catch(function (e) { return { ok: false, msg: pickMsg(e, '校验失败') }; });
+    }
+
+    var u = global.RCAuthStore.byId(current.id);
+    if (!u) return Promise.resolve({ ok: false, msg: '账号不存在' });
+    return global.RCCrypto.verify(pw, u.pw).then(function (ok) {
+      return ok ? { ok: true } : { ok: false, msg: '密码不正确' };
+    });
+  }
+
   /** 管理员改别人密码（不需要原密码） */
   function resetPassword(userId, newPw) {
     if (!can('user.manage')) return Promise.resolve({ ok: false, msg: '没有权限' });
@@ -634,6 +663,7 @@
     canEnterClass: canEnterClass,
     canEditClass: canEditClass,
     changePassword: changePassword,
+    verifyPassword: verifyPassword,
     resetPassword: resetPassword,
     refresh: refresh,
     touch: touch,

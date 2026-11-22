@@ -694,6 +694,41 @@
   </div>
 </div>
 
+<!-- ============ 危险操作确认弹窗（删除班级 / 清空记录） ============ -->
+<div class="modal" id="dangerModal">
+  <div class="modal-box modal-sm">
+    <div class="modal-head">
+      <h3 id="dangerTitle">确认操作</h3>
+      <button class="icon-btn" data-close>✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="danger-desc" id="dangerDesc"></p>
+
+      <label class="field danger-field" id="dangerNameField">
+        <span class="field-label" id="dangerNameLabel">输入名称以确认</span>
+        <input type="text" id="dangerName" class="input-lg" autocomplete="off"
+               autocapitalize="off" spellcheck="false" maxlength="20">
+      </label>
+
+      <label class="field danger-field" id="dangerPwField">
+        <span class="field-label">登录密码</span>
+        <div class="pw-wrap">
+          <input type="password" id="dangerPw" class="input-lg" placeholder="请输入当前账号的登录密码"
+                 autocomplete="current-password">
+          <button type="button" class="pw-eye" id="dangerEye" title="显示密码" tabindex="-1">👁</button>
+        </div>
+      </label>
+
+      <p class="login-err hidden" id="dangerErr"></p>
+    </div>
+    <div class="modal-foot">
+      <span class="spacer"></span>
+      <button class="btn btn-ghost" data-close>取消</button>
+      <button class="btn btn-danger" id="btnDangerOk" disabled>确认删除</button>
+    </div>
+  </div>
+</div>
+
 
 <!-- ============ 抽取记录弹窗 ============ -->
 <div class="modal" id="historyModal">

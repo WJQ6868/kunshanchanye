@@ -3672,6 +3672,29 @@ html[data-theme="blue"] .login-brand { background: linear-gradient(158deg, #0b25
 html[data-theme="gold"] .login-err,
 html[data-theme="blue"] .login-err { background: rgba(220, 38, 38, .14); border-color: rgba(220, 38, 38, .34); }
 
+/* ---------- 危险操作确认弹窗（删除班级等不可撤销动作） ---------- */
+
+/* 说明文字保留换行：每一条影响单独一行，比挤成一段更容易看清要删掉什么 */
+.danger-desc {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.72;
+  color: var(--text-dim);
+  white-space: pre-line;
+}
+
+.danger-desc b { color: var(--text); font-weight: 700; }
+
+/* .field 默认带下边距，弹窗里由 modal-body 的 gap 统一控制间距 */
+#dangerModal .field { margin-bottom: 0; }
+
+#dangerModal .modal-body { gap: 14px; }
+
+#dangerModal .login-err { margin: 0; }
+
+/* 输入框内容对不上时给个红边，比只让按钮灰着更容易发现要改哪里 */
+#dangerModal .input-lg.is-bad { border-color: var(--danger-line); box-shadow: 0 0 0 3px var(--danger-soft); }
+
 /* ---------- 窄屏：品牌区折叠成顶部条 ---------- */
 
 @media (max-width: 780px) {

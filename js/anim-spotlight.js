@@ -169,6 +169,12 @@
    * 按人数与容器尺寸算列数，让人少时卡片不会被拉成长条
    * 目标：卡片宽高比接近 1.5 : 1，且铺满容器
    */
+  /** 用户在设置里选的字号缩放比例（--fs），拿不到就当 1 */
+  function fsScale() {
+    var v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--fs'));
+    return (isFinite(v) && v > 0) ? v : 1;
+  }
+
   function fitGrid() {
     if (!gridEl) return;
     var n = cards.length;
@@ -241,9 +247,12 @@
     var fs = Math.max(15, Math.min(best.ch * 0.30, best.cw * 0.185, 40));
     // 两个角标：左下累计分、右下当天分，都要比原来的学号大
     var badge = Math.max(13, Math.min(best.ch * 0.155, best.cw * 0.115, 24));
-    gridEl.style.setProperty('--card-fs', Math.round(fs) + 'px');
-    gridEl.style.setProperty('--card-sub', Math.round(Math.max(11, badge * 0.8)) + 'px');
-    gridEl.style.setProperty('--card-badge', Math.round(badge) + 'px');
+    /* 卡片字号是 JS 算出来的 px，直接写内联变量会绕过 CSS 里的 calc(* var(--fs))，
+       所以这里手动乘一次用户的字号缩放比例，否则设置里放大字号对卡片不生效。 */
+    var fscale = fsScale();
+    gridEl.style.setProperty('--card-fs', Math.round(fs * fscale) + 'px');
+    gridEl.style.setProperty('--card-sub', Math.round(Math.max(11, badge * 0.8) * fscale) + 'px');
+    gridEl.style.setProperty('--card-badge', Math.round(badge * fscale) + 'px');
 
     fitNames();
   }

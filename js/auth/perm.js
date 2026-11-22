@@ -56,7 +56,9 @@
     { key: 'draw.mode_switch', g: '课堂', label: '切换点名动画', d: true },
     { key: 'draw.reset', g: '课堂', label: '重置本轮抽取', d: false },
     { key: 'theme.switch', g: '课堂', label: '切换主题', d: true },
-    { key: 'settings.open', g: '课堂', label: '打开设置', d: false },
+    /* 讲师也能打开设置做基础调整（字号/音效/主题/快速模式）。
+       清空数据那类真正危险的动作另有 settings.wipe 兜着，且只认 wjqcool。 */
+    { key: 'settings.open', g: '课堂', label: '打开设置', d: true },
     { key: 'settings.wipe', g: '课堂', label: '清空本机数据', d: false, n: true },
 
     /* G 管理台 */

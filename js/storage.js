@@ -19,7 +19,9 @@
     SETTINGS: PREFIX + 'settings.v1',
     STATE: PREFIX + 'state.v1',
     CLASSES: PREFIX + 'classes.v1',
-    SCORES: PREFIX + 'scores.v1.'
+    SCORES: PREFIX + 'scores.v1.',
+    FONTSCALE: PREFIX + 'fontscale.v1.',
+    FONTSCALE_LAST: PREFIX + 'fontscale.last'
   };
 
   function read(key, fallback) {
@@ -177,6 +179,31 @@
         current: (c && c.current) || '',
         list: list
       });
+    },
+
+    /* ---------- 字号缩放（按账号各存一份） ---------- */
+
+    /**
+     * 字号缩放比例。键里带账号 id，同一台电脑换账号互不影响。
+     * 存 localStorage 而不是服务端设置，因为这是「这台设备的显示偏好」：
+     * 办公室大屏和笔记本要的字号本来就不一样，跟着账号跨设备同步反而添乱。
+     */
+    fontScaleKeyOf: function (uid) {
+      var k = String(uid == null ? '' : uid);
+      return KEY.FONTSCALE + encodeURIComponent(k || 'local');
+    },
+    loadFontScale: function (uid) {
+      var v = Number(read(Storage.fontScaleKeyOf(uid), 0));
+      return (isFinite(v) && v > 0) ? v : 0;
+    },
+    saveFontScale: function (uid, scale) {
+      // 另存一份「最近用过的」，登录页在还不知道是谁的时候先用它，避免登录瞬间字号跳一下
+      write(KEY.FONTSCALE_LAST, scale);
+      return write(Storage.fontScaleKeyOf(uid), scale);
+    },
+    loadFontScaleLast: function () {
+      var v = Number(read(KEY.FONTSCALE_LAST, 0));
+      return (isFinite(v) && v > 0) ? v : 0;
     },
 
     /* ---------- 加分记录（按班级独立存放） ---------- */

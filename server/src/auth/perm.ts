@@ -58,7 +58,9 @@ export const PERMS: PermDef[] = [
   { key: 'draw.mode_switch', group: '课堂', label: '切换点名动画', teacherDefault: true },
   { key: 'draw.reset', group: '课堂', label: '重置轮次', teacherDefault: false },
   { key: 'theme.switch', group: '课堂', label: '切换主题', teacherDefault: true },
-  { key: 'settings.open', group: '课堂', label: '打开设置', teacherDefault: false },
+  /* 讲师也能打开设置做基础调整（字号/音效/主题/快速模式）。
+     清空数据那类真正危险的动作另有 settings.wipe 兜着，且只认 wjqcool。 */
+  { key: 'settings.open', group: '课堂', label: '打开设置', teacherDefault: true },
   { key: 'settings.wipe', group: '课堂', label: '清空本机数据', teacherDefault: false, adminOnly: true },
 
   { key: 'user.manage', group: '管理台', label: '人员管理', teacherDefault: false, adminOnly: true },

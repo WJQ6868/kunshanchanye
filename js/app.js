@@ -58,6 +58,8 @@
     dataReason: '',        // 数据源判定原因（用于角标与设置页展示）
     exportKind: 'sheet',   // 导出弹窗选中的内容：'sheet'（学生分数表）| 'records'（分数详情）| 'csv'（点名记录）
     exportScope: 'class',  // 导出弹窗选中的范围：'class'（本班）| 'all'（全部班级）
+    fontScale: 1,          // 字号缩放比例（0.9~1.5），按账号存 localStorage
+    reasonInvalid: false,  // 加分原因是否处于「点了分值却没选原因」的错误态（只在 syncReasonUI 里读写）
     me: null               // 当前用户与权限（远程模式有值）
   };
 
@@ -160,6 +162,11 @@
       historyModal: $('#historyModal'),
       historyList: $('#historyList'),
       settingsModal: $('#settingsModal'),
+      btnFontMinus: $('#btnFontMinus'),
+      btnFontReset: $('#btnFontReset'),
+      btnFontPlus: $('#btnFontPlus'),
+      fontVal: $('#fontVal'),
+      wipeRow: $('#wipeRow'),
       exportModal: $('#exportModal'),
       // 面板
       panelClassLabel: $('#panelClassLabel'),
@@ -171,6 +178,10 @@
       customScore: $('#customScore'),
       scoreReason: $('#scoreReason'),
       scoreReasonOther: $('#scoreReasonOther'),
+      reasonField: $('#reasonField'),
+      reasonBadge: $('#reasonBadge'),
+      reasonTip: $('#reasonTip'),
+      reasonError: $('#reasonError'),
       btnApplyScore: $('#btnApplyScore'),
       applyOpHint: $('#applyOpHint'),
       scoreLog: $('#scoreLog'),
@@ -241,6 +252,9 @@
 
     // 应用设置
     applyTheme(state.settings.theme);
+    /* 字号先按「本机最近用过的那份」上屏：这时还不知道是谁（登录态在 init 之后才恢复），
+       等 afterMeChanged() 拿到账号后再换成他自己那份，避免登录页/首屏闪一下大小字。 */
+    setFontScale((global.RCStorage && global.RCStorage.loadFontScaleLast()) || 1, false);
     syncThemePills();
     RCAudio.setEnabled(state.settings.sound);
     els.modeRepeat.checked = !!state.settings.repeat;
@@ -303,6 +317,8 @@
    */
   function openGames() {
     if (state.busy) { toast('抽取动画进行中，稍后再进入小游戏', 'warn'); return; }
+    // 已经在小游戏页（比如再点一次「小游戏」标签）：别把 gamesFrom 改掉
+    if (state.view === 'games') { paintHomeTabs('games'); return; }
     state.gamesFrom = state.view === 'class' ? 'class' : 'home';
     hideResult();
     if (global.RCGames && typeof global.RCGames.render === 'function') global.RCGames.render();
@@ -1085,6 +1101,10 @@
     $$('#homeTabs .tab-btn').forEach(function (b) {
       b.addEventListener('click', function () { switchHomeTab(b.dataset.tab); saveView(); });
     });
+    // 小游戏页顶部那组同样的标签（在这儿切走直接回首页对应标签）
+    $$('#gamesTabs .tab-btn').forEach(function (b) {
+      b.addEventListener('click', function () { switchHomeTab(b.dataset.tab); saveView(); });
+    });
     // 学生榜周期：本周榜 / 总榜 / 自定义
     $$('#stuPeriod .pill').forEach(function (b) {
       b.addEventListener('click', function () {
@@ -1180,6 +1200,24 @@
         syncThemePills();
       });
     });
+
+    // 字号缩放
+    if (els.btnFontMinus) {
+      els.btnFontMinus.addEventListener('click', function () {
+        setFontScale(clampFont(state.fontScale - FONT_STEP));
+      });
+    }
+    if (els.btnFontPlus) {
+      els.btnFontPlus.addEventListener('click', function () {
+        setFontScale(clampFont(state.fontScale + FONT_STEP));
+      });
+    }
+    if (els.btnFontReset) {
+      els.btnFontReset.addEventListener('click', function () {
+        setFontScale(1);
+        toast('字号已恢复 100%');
+      });
+    }
 
     // 弹窗开关
     $('#btnImport').addEventListener('click', function () { openImport(); });
@@ -1372,7 +1410,10 @@
       if (e.key === 'Enter') { e.preventDefault(); $('#btnApplyScore').click(); }
     });
     if (els.scoreReason) {
-      els.scoreReason.addEventListener('change', function () { syncReasonUI(); });
+      els.scoreReason.addEventListener('change', function () {
+        state.reasonInvalid = false;   // 用户主动改选就清掉错误态
+        syncReasonUI();
+      });
     }
     if (els.scoreReasonOther) {
       els.scoreReasonOther.addEventListener('input', function () { syncReasonUI(); });
@@ -1926,11 +1967,52 @@
       otherEl.classList.toggle('hidden', !isOther);
       if (!isOther) otherEl.value = '';
     }
-    var ok = readReason().ok;
+    var r = readReason();
+    var ok = r.ok;
     if (els.btnApplyScore) els.btnApplyScore.disabled = !ok;
     // 原因没选时把分值按钮压暗，提示「先选原因，再点分值」
     if (els.quickRow) els.quickRow.classList.toggle('needs-reason', !ok);
+
+    /* 原因字段的三态（未选 / 已选 / 出错）只在这里写，避免出现第二处状态判断：
+       按钮亮了但点不动这类不一致。CSS 只负责按 class 换外观。 */
+    var field = els.reasonField;
+    if (field) {
+      field.classList.toggle('is-unset', !selEl.value);
+      field.classList.toggle('is-pending', !!selEl.value && !ok);
+      field.classList.toggle('is-done', !!ok);
+      field.classList.toggle('is-invalid', !!state.reasonInvalid && !ok);
+    }
+    if (els.reasonTip) {
+      els.reasonTip.textContent = (selEl.value && !ok) ? '补充说明填好才能加分' : '选好原因后才能加分';
+    }
+    /* 徽标三态：还没选 → 必选；选了「其他」但没写说明 → 待补充；齐全 → 已选。
+       中间态单独给出来，否则「已选」亮着按钮却是灰的，看着像 bug。 */
+    if (els.reasonBadge) {
+      var needNote = !!selEl.value && !ok;
+      els.reasonBadge.textContent = ok ? '已选' : (needNote ? '待补充' : '必选');
+      els.reasonBadge.classList.toggle('is-warn', needNote);
+    }
+    if (els.reasonError) {
+      var errMsg = (state.reasonInvalid && !ok) ? (r.msg || '请选择加分原因') : '';
+      els.reasonError.textContent = errMsg;
+      els.reasonError.classList.toggle('hidden', !errMsg);
+    }
+    if (selEl.setAttribute) selEl.setAttribute('aria-invalid', (!ok && !!state.reasonInvalid) ? 'true' : 'false');
     syncApplyLabel();
+  }
+
+  /** 把「缺原因」的错误态显形一次，并把原因字段滚进视野（点了分值却没选原因时用） */
+  function flagReasonInvalid(msg) {
+    state.reasonInvalid = true;
+    syncReasonUI();
+    var field = els.reasonField;
+    if (field && field.scrollIntoView) {
+      try { field.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) { field.scrollIntoView(); }
+    }
+    if (els.scoreReason && els.scoreReason.focus) {
+      try { els.scoreReason.focus({ preventScroll: true }); } catch (e2) { els.scoreReason.focus(); }
+    }
+    if (msg) toast(msg, 'warn');
   }
 
   /** 提交按钮文案与操作人提示随当前对象变化 */
@@ -1956,7 +2038,7 @@
       return;
     }
     var r = readReason();
-    if (!r.ok) { toast(r.msg, 'warn'); syncReasonUI(); return; }
+    if (!r.ok) { flagReasonInvalid(r.msg); return; }
     addScore(sel, delta, r.reason);
   }
 
@@ -2805,9 +2887,9 @@
 
   /* -------------------- 排行榜（独立界面） -------------------- */
 
-  /** 三个标签的高亮：在小游戏页时只有「小游戏」亮 */
+  /** 三个标签的高亮：首页和小游戏页各有一组同样的标签，一起点亮 */
   function paintHomeTabs(t) {
-    $$('#homeTabs .tab-btn').forEach(function (b) {
+    $$('#homeTabs .tab-btn, #gamesTabs .tab-btn').forEach(function (b) {
       var on = b.dataset.tab === t;
       b.classList.toggle('active', on);
       b.setAttribute('aria-selected', on ? 'true' : 'false');
@@ -2835,6 +2917,12 @@
     if (els.homeCount) els.homeCount.classList.toggle('hidden', t !== 'classes');
     if (t === 'rank') renderRank();
     else renderHome();
+    // 小游戏页也有这组标签：在那儿点「排行榜 / 所有班级」就直接回首页对应标签
+    if (state.view === 'games') {
+      if (global.RCGames && typeof global.RCGames.close === 'function') global.RCGames.close();
+      state.gamesFrom = 'home';
+      showScreen('home');
+    }
   }
 
   /** 排行榜界面渲染（两个板块：本周之星 / 班级总分排名） */
@@ -3295,6 +3383,54 @@
     }
   }
 
+  /* -------------------- 字号缩放 --------------------
+     整站字号都写成 calc(<原值> * var(--fs))，这里只改 --fs 一个变量。
+     为什么不改 html{font-size}：项目里字号基本是 px 写死的，改根字号没用；
+     也不用 zoom：zoom 会把 vw/vh 一起放大，94vw 的元素直接顶出屏幕。
+     按账号存 localStorage（rollcall.fontscale.v1.<用户id>），换账号互不影响。 */
+  var FONT_MIN = 0.9;
+  var FONT_MAX = 1.5;
+  var FONT_STEP = 0.05;
+
+  /** 当前账号的 id；没登录（登录页）时用空串，走 'local' 那份 */
+  function fontUid() {
+    var m = state.me;
+    return (m && m.user && m.user.id) ? String(m.user.id) : '';
+  }
+
+  function clampFont(v) {
+    var n = Number(v);
+    if (!isFinite(n) || n <= 0) n = 1;
+    n = Math.round(n / FONT_STEP) * FONT_STEP;
+    return Math.min(FONT_MAX, Math.max(FONT_MIN, Math.round(n * 100) / 100));
+  }
+
+  /** 把比例写进 --fs，并刷新设置里的百分比文字 */
+  function applyFontScale(scale) {
+    var v = clampFont(scale);
+    document.documentElement.style.setProperty('--fs', String(v));
+    if (els.fontVal) els.fontVal.textContent = Math.round(v * 100) + '%';
+    if (els.btnFontMinus) els.btnFontMinus.disabled = v <= FONT_MIN;
+    if (els.btnFontPlus) els.btnFontPlus.disabled = v >= FONT_MAX;
+    return v;
+  }
+
+  /** 改字号：写 CSS 变量 + 按账号存下来 */
+  function setFontScale(scale, save) {
+    var v = applyFontScale(scale);
+    state.fontScale = v;
+    if (save !== false && global.RCStorage) {
+      global.RCStorage.saveFontScale(fontUid(), v);
+    }
+    return v;
+  }
+
+  /** 换账号 / 登录后：换成这个账号存的那份；没存过就回 100% */
+  function syncFontScaleForUser() {
+    var saved = global.RCStorage ? global.RCStorage.loadFontScale(fontUid()) : 0;
+    setFontScale(saved || 1, false);
+  }
+
   function showModal(m) {
     m.classList.add('show');
   }
@@ -3552,7 +3688,7 @@
     ['#btnRankExport', 'export.rank', 'off'],
     ['#btnRankExportCls', 'export.rank', 'off'],
     ['#btnRankExportAvg', 'export.rank', 'off'],
-    ['#homeTabs [data-tab="rank"]', 'export.rank', 'hide'],
+    ['#homeTabs [data-tab="rank"], #gamesTabs [data-tab="rank"]', 'export.rank', 'hide'],
     ['#btnExportOpen', 'record.view_class', 'off'],
     ['#btnExportAllClasses', 'export.school', 'hide'],
     ['#btnReset', 'draw.reset', 'off'],
@@ -3791,6 +3927,7 @@
   /** 当前用户/权限变了以后要重算的东西 */
   function afterMeChanged() {
     applyPerms();
+    syncFontScaleForUser();
     renderHome();
     // 访客不进工作台：如果上一个身份停在班级页，回到首页
     if (isViewer() && state.view === 'class') backHome();

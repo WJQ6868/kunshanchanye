@@ -490,33 +490,47 @@
           <section class="panel-block panel-block-score">
             <div class="panel-block-head">
               <b>加分操作</b>
-              <span class="panel-count" id="panelSum">合计 0 分</span>
             </div>
+            <p class="panel-meta" id="panelSum">合计 0 分 · 0 条</p>
 
-            <!-- 顺序：先选原因（备注），再点具体分值 -->
-            <div class="reason-row">
-              <select id="scoreReason" class="input-mini reason-select">
-                <option value="">选择加分原因（必选）</option>
-                <option value="答疑加分">1 · 答疑加分</option>
-                <option value="作业加分">2 · 作业加分</option>
-                <option value="课堂表现">3 · 课堂表现</option>
-                <option value="问题扣分">4 · 问题扣分</option>
-                <option value="其他">5 · 其他（需补充说明）</option>
-              </select>
-              <input type="text" id="scoreReasonOther" class="input-mini hidden" placeholder="补充说明（必填）" maxlength="40">
+            <!-- 顺序：① 先选原因（备注），② 再点具体分值 -->
+            <div class="reason-field is-unset" id="reasonField">
+              <div class="reason-head">
+                <label class="reason-label" for="scoreReason"><span class="reason-step">①</span>加分原因</label>
+                <span class="reason-badge" id="reasonBadge">必选</span>
+              </div>
+              <div class="reason-row">
+                <span class="reason-select-wrap">
+                  <select id="scoreReason" class="input-mini reason-select" aria-required="true" aria-describedby="reasonTip">
+                    <option value="">请选择加分原因</option>
+                    <option value="答疑加分">1 · 答疑加分</option>
+                    <option value="作业加分">2 · 作业加分</option>
+                    <option value="课堂表现">3 · 课堂表现</option>
+                    <option value="问题扣分">4 · 问题扣分</option>
+                    <option value="其他">5 · 其他（需补充说明）</option>
+                  </select>
+                </span>
+                <input type="text" id="scoreReasonOther" class="input-mini hidden" placeholder="补充说明（必填）" maxlength="40">
+              </div>
+              <p class="reason-tip" id="reasonTip">选好原因后才能加分</p>
+              <p class="reason-error hidden" id="reasonError" role="alert"></p>
             </div>
 
             <div class="quick-row" id="quickRow">
-              <button class="score-btn minus" data-delta="-1">−1</button>
-              <button class="score-btn minus" data-delta="-2">−2</button>
-              <button class="score-btn plus" data-delta="1">+1</button>
-              <button class="score-btn plus" data-delta="2">+2</button>
-              <button class="score-btn plus" data-delta="3">+3</button>
-              <button class="score-btn plus" data-delta="5">+5</button>
+              <div class="score-group score-group--minus" role="group" aria-label="扣分">
+                <button class="score-btn minus" type="button" data-delta="-1">−1</button>
+                <button class="score-btn minus" type="button" data-delta="-2">−2</button>
+              </div>
+              <div class="score-group score-group--plus" role="group" aria-label="加分">
+                <button class="score-btn plus" type="button" data-delta="1">+1</button>
+                <button class="score-btn plus" type="button" data-delta="2">+2</button>
+                <button class="score-btn plus" type="button" data-delta="3">+3</button>
+                <button class="score-btn plus" type="button" data-delta="5">+5</button>
+              </div>
             </div>
 
             <div class="custom-row">
-              <input type="number" id="customScore" class="input-mini" placeholder="自定义分" step="0.5" inputmode="decimal">
+              <input type="number" id="customScore" class="input-mini" placeholder="自定义分（可填负数）" step="0.5" inputmode="decimal">
             </div>
 
             <div class="op-hint" id="applyOpHint">操作人：—</div>
@@ -593,6 +607,16 @@
         <span class="hint" id="gamesCount"></span>
       </div>
     </header>
+
+    <!-- 首页那三个标签在小游戏页也留着，可以直接切走，不必先按返回 -->
+    <div class="home-tabs game-tabs">
+      <div class="tab-group" id="gamesTabs" role="tablist">
+        <button class="tab-btn" data-tab="rank" role="tab" aria-selected="false">🏆 排行榜</button>
+        <button class="tab-btn" data-tab="classes" role="tab" aria-selected="false">所有班级</button>
+        <button class="tab-btn active" data-tab="games" role="tab" aria-selected="true">🎮 小游戏</button>
+      </div>
+      <span class="spacer"></span>
+    </div>
 
     <div class="game-body">
       <div class="game-grid" id="gameGrid"></div>
@@ -865,7 +889,18 @@
           <button class="pill" data-theme="white">白色</button>
         </div>
       </div>
-      <div class="setting-row">
+      <div class="setting-row setting-row-wrap">
+        <div>
+          <b>字号</b>
+          <p class="muted">整站文字放大缩小，只影响你这台电脑上的这个账号（90%–150%）</p>
+        </div>
+        <div class="font-ctrl">
+          <button class="icon-btn" id="btnFontMinus" type="button" title="缩小字号" aria-label="缩小字号">A−</button>
+          <button class="font-val" id="btnFontReset" type="button" title="点击恢复 100%"><span id="fontVal">100%</span></button>
+          <button class="icon-btn" id="btnFontPlus" type="button" title="放大字号" aria-label="放大字号">A＋</button>
+        </div>
+      </div>
+      <div class="setting-row" id="wipeRow">
         <div>
           <b>清空数据</b>
           <p class="muted">删除本机保存的名单、抽取记录与全部班级加分记录</p>
